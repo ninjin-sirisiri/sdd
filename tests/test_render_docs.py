@@ -1,0 +1,77 @@
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+import pytest
+
+SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
+RENDER = SCRIPTS / "render-docs"
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
+
+
+def _run(cwd: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, str(RENDER), *args],
+        cwd=cwd,
+        text=True,
+        capture_output=True,
+    )
+
+
+def test_render_glossary_keeps_terms_and_does_not_touch_source(tmp_path: Path) -> None:
+    src = tmp_path / "CONTEXT.md"
+    shutil.copy(FIXTURES / "glossary" / "CONTEXT.md", src)
+    before = src.read_bytes()
+    result = _run(tmp_path, ["CONTEXT.md"])
+    assert result.returncode == 0, result.stderr
+    html = (tmp_path / "CONTEXT.html").read_text()
+    assert "Order" in html
+    assert "Purchase" in html
+    assert "<h1" in html
+    assert src.read_bytes() == before
+    css = tmp_path / "docs" / "sdd" / "assets" / "sdd.css"
+    assert css.is_file()
+    assert 'href="docs/sdd/assets/sdd.css"' in html
+
+
+def test_render_is_idempotent(tmp_path: Path) -> None:
+    shutil.copy(FIXTURES / "glossary" / "CONTEXT.md", tmp_path / "CONTEXT.md")
+    assert _run(tmp_path, ["CONTEXT.md"]).returncode == 0
+    first = (tmp_path / "CONTEXT.html").read_bytes()
+    assert _run(tmp_path, ["CONTEXT.md"]).returncode == 0
+    assert (tmp_path / "CONTEXT.html").read_bytes() == first
+    assert "datetime" not in first.decode().lower()
+
+
+def test_render_defaults_and_relative_css(tmp_path: Path) -> None:
+    (tmp_path / "docs" / "adr").mkdir(parents=True)
+    (tmp_path / "docs" / "sdd" / "specs").mkdir(parents=True)
+    (tmp_path / "docs" / "sdd" / "plans").mkdir(parents=True)
+    shutil.copy(FIXTURES / "glossary" / "CONTEXT.md", tmp_path / "CONTEXT.md")
+    shutil.copy(FIXTURES / "adr" / "0001-use-postgres.md", tmp_path / "docs" / "adr" / "0001-use-postgres.md")
+    shutil.copy(
+        FIXTURES / "spec" / "2026-01-01-example-design.md",
+        tmp_path / "docs" / "sdd" / "specs" / "2026-01-01-example-design.md",
+    )
+    shutil.copy(
+        FIXTURES / "plan" / "2026-01-01-example.md",
+        tmp_path / "docs" / "sdd" / "plans" / "2026-01-01-example.md",
+    )
+    result = _run(tmp_path, [])
+    assert result.returncode == 0, result.stderr
+    adr_html = (tmp_path / "docs" / "adr" / "0001-use-postgres.html").read_text()
+    spec_html = (tmp_path / "docs" / "sdd" / "specs" / "2026-01-01-example-design.html").read_text()
+    plan_html = (tmp_path / "docs" / "sdd" / "plans" / "2026-01-01-example.html").read_text()
+    assert "Postgres" in adr_html
+    assert 'href="../sdd/assets/sdd.css"' in adr_html
+    assert "Keep Markdown canonical" in spec_html
+    assert 'href="../assets/sdd.css"' in spec_html
+    assert "UNIQUE_TASK_ONE" in plan_html
+    assert 'href="../assets/sdd.css"' in plan_html
+
+
+def test_missing_explicit_path_is_nonzero(tmp_path: Path) -> None:
+    result = _run(tmp_path, ["nope.md"])
+    assert result.returncode != 0
+    assert "nope.md" in result.stderr
