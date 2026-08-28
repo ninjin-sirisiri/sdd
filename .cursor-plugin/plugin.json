@@ -1,0 +1,9 @@
+{
+  "name": "sdd",
+  "displayName": "SDD",
+  "description": "Spec-driven development: grill-style design, plans, subagent execution, stacked PRs",
+  "version": "0.1.0",
+  "author": { "name": "sdd" },
+  "license": "MIT",
+  "skills": "./skills/"
+}
