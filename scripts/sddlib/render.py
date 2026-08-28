@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-import sys
 import argparse
+import html
+import sys
 
 _VENDOR = Path(__file__).resolve().parent.parent / "_vendor"
 if str(_VENDOR) not in sys.path:
@@ -49,13 +50,15 @@ def _title(md_text: str, stem: str) -> str:
 
 
 def _document(body: str, title: str, css_href: str) -> str:
+    safe_title = html.escape(title, quote=True)
+    safe_href = html.escape(css_href, quote=True)
     return (
         "<!DOCTYPE html>\n"
         '<html lang="und">\n'
         "<head>\n"
         '<meta charset="utf-8">\n'
-        f"<title>{title}</title>\n"
-        f'<link rel="stylesheet" href="{css_href}">\n'
+        f"<title>{safe_title}</title>\n"
+        f'<link rel="stylesheet" href="{safe_href}">\n'
         "</head>\n"
         "<body>\n<main>\n"
         f"{body}\n"

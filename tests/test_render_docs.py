@@ -3,8 +3,6 @@ import shutil
 import subprocess
 import sys
 
-import pytest
-
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 RENDER = SCRIPTS / "render-docs"
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -75,3 +73,13 @@ def test_missing_explicit_path_is_nonzero(tmp_path: Path) -> None:
     result = _run(tmp_path, ["nope.md"])
     assert result.returncode != 0
     assert "nope.md" in result.stderr
+
+
+def test_title_special_chars_are_html_escaped(tmp_path: Path) -> None:
+    md = tmp_path / "CONTEXT.md"
+    md.write_text("# A & B </title>\n\nbody\n", encoding="utf-8")
+    result = _run(tmp_path, ["CONTEXT.md"])
+    assert result.returncode == 0, result.stderr
+    out = (tmp_path / "CONTEXT.html").read_text(encoding="utf-8")
+    assert "<title>A &amp; B &lt;/title&gt;</title>" in out
+    assert "<title>A & B </title>" not in out
