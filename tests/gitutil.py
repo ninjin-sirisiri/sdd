@@ -14,5 +14,6 @@ def git(cwd: Path, *args: str) -> str:
 
 
 def init_repo(cwd: Path) -> None:
-    git(cwd, "init")
+    # Non-main initial branch so callers can `checkout -b main`.
+    git(cwd, "init", "-b", "sdd-base")
     git(cwd, "-c", "user.email=sdd@test", "-c", "user.name=sdd", "commit", "--allow-empty", "-m", "base")
