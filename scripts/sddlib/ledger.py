@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import re
 
 LEDGER_RE = re.compile(
-    r"^Task (\d+): complete \(commits ([0-9a-z]+)\.\.([0-9a-z]+), review clean\)\s*$"
+    r"^Task (\d+): complete \(commits ([0-9a-f]+)\.\.([0-9a-f]+), review clean\)\s*$"
 )
 GOAL_RE = re.compile(r"^\*\*Goal:\*\*\s*(.*)$")
 TASK_HEAD_RE = re.compile(r"^## Task (\d+):")

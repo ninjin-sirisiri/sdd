@@ -49,12 +49,12 @@ def test_parse_ledger_ignores_rulings() -> None:
     text = (
         "Ruling: picked names — clarity — low\n"
         "Task 1: complete (commits abc1234..def5678, review clean)\n"
-        "Task 2: complete (commits def5678..ghi9012, review clean)\n"
+        "Task 2: complete (commits def5678..aaa9012, review clean)\n"
     )
     items = parse_ledger(text)
     assert [i.number for i in items] == [1, 2]
     assert items[0].base == "abc1234"
-    assert items[1].head == "ghi9012"
+    assert items[1].head == "aaa9012"
 
 
 def test_dry_run_does_not_create_branches_or_call_hooks(tmp_path: Path) -> None:
