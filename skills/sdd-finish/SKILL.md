@@ -7,7 +7,7 @@ description: After implementation is green, merge locally, open one PR, keep the
 
 Announce: "I'm using sdd-finish."
 
-Run the consuming repo's full test suite. If it fails, report failures and do not show the menu.
+Use verification-before-completion: run the consuming repo's full test suite and read the output. If it fails, report failures and do not show the menu.
 
 Confirm the base branch (plan, conversation, or upstream). If unsure, ask.
 

@@ -17,7 +17,7 @@ Superpowers の分類・承認ゲート・plan・サブエージェント実行�
 
 - 設計から終了まで、Cursor と Claude Code で同じスキル正本が動く。
 - 設計中に解決した語はすぐ `CONTEXT.md` へ、3 条件を満たす決定だけ ADR へ書く。それ以外の合意は同じセッションで spec に載せる。
-- 実行時に Superpowers プラグインにも grill-with-docs にも委譲しない。
+- 実行時に Superpowers プラグインにも grill-with-docs にも委譲しない。TDD / デバッグ / 検証 / worktree / レビューは Superpowers 6.3.0 からパックへ vendor する。
 - 正本は Markdown。対応 HTML は生成物として隣に置く。
 - 実行は 1 ブランチ。終了選択肢に Task 1:1 の stacked PR を足す。
 
@@ -43,6 +43,13 @@ skills/sdd-design/
 skills/sdd-plan/
 skills/sdd-execute/          # implementer / task-reviewer / final-reviewer
 skills/sdd-finish/
+skills/test-driven-development/   # Superpowers 6.3.0, vendored
+skills/systematic-debugging/
+skills/verification-before-completion/
+skills/using-git-worktrees/
+skills/requesting-code-review/
+skills/receiving-code-review/
+skills/dispatching-parallel-agents/
 scripts/render-docs
 scripts/task-brief
 scripts/review-package
@@ -74,7 +81,7 @@ sdd-design → sdd-plan → sdd-execute → sdd-finish
 | 分類 | spec ファイル | plan | execute | finish |
 |---|---|---|---|---|
 | spike | 作らない | 使わない | 使わない | 使わない |
-| bounded | 作らない。チャットの短い設計が正 | 使わない | 使わない。承認後に同じセッションで TDD 実装 | 1〜3 は使える。4 はレジャーが無いので出さない |
+| bounded | 作らない。チャットの短い設計が正 | 使わない | 使わない。承認後に同じセッションで `test-driven-development` | 1〜3 は使える。4 はレジャーが無いので出さない |
 | architectural | 必須 | 必須 | 必須 | 必須 |
 
 分類は最初に口に出す。迷ったら重い方。途中で複雑さが顔を出したらダウングレードせず、重いパスへ上げて宣言する。
@@ -109,7 +116,7 @@ v1 はルートの `CONTEXT.md` のみ。`CONTEXT-MAP.md` がある場合は、�
 
 ## `sdd`（入口）
 
-いつどのスキルを使うかを決める。ユーザーが実装だけを頼んでも、architectural 相当なら `sdd-design` から始める。plan がある状態で「実行して」なら `sdd-execute`。実装が終わりテストが緑なら `sdd-finish`。
+いつどのスキルを使うかを決める。ユーザーが実装だけを頼んでも、architectural 相当なら `sdd-design` から始める。plan がある状態で「実行して」なら `sdd-execute`。実装が終わりテストが緑なら `sdd-finish`。バグやテスト失敗は `systematic-debugging`。bounded 実装は `test-driven-development`。完了宣言の前は `verification-before-completion`。
 
 ## `sdd-design`
 
@@ -159,7 +166,7 @@ _Avoid_: {使わない同義語}
 
 **spike:** 2〜3 文でプローブを出し、頷きを得てから安く調べ、推奨を返す。残すコードは throwaway と明記する。spec / plan は作らない。問い詰め中に用語や ADR ゲートを満たした決定があれば、通常どおりディスクへ書く。
 
-**bounded:** 短い設計をチャットに出し、明示の yes まで実装しない。yes のあと、同じセッションで TDD 実装する。spec ファイルも plan も作らない。
+**bounded:** 短い設計をチャットに出し、明示の yes まで実装しない。yes のあと、同じセッションで `test-driven-development` する。spec ファイルも plan も作らない。
 
 **architectural:** アプローチを 2〜3 出し、推奨を先に述べる。デザインはセクションごとに出し、各セクションの承認を待つ。全セクション承認後に spec Markdown と HTML を書き、プレースホルダ・矛盾・曖昧さ・範囲を自己レビューして直す。spec と、このセッションで更新した `CONTEXT.md` / ADR / 対応 HTML をまとめてコミットする。ユーザーに spec ファイルのレビューを求める。変更があれば新しいコミットにする（amend しない）。承認後に `sdd-plan` へ渡す。writing-plans スキルは呼ばない。
 
@@ -181,7 +188,7 @@ plan 先頭は次のヘッダを必須とする:
 
 ## `sdd-execute`
 
-1 ブランチのまま、Task を直列に実行する。実装サブエージェントを並列に出さない。TDD 契約は implementer プロンプトにインラインする。独立した TDD スキルは作らない。再レビューも同じ task-reviewer 雛形を使う。
+1 ブランチのまま、Task を直列に実行する。実装サブエージェントを並列に出さない。TDD は `test-driven-development` スキルに従う。implementer プロンプトにも RED-GREEN の最低契約を残し、スキルが読めないサブエージェントでも TDD する。再レビューも同じ task-reviewer 雛形を使う。`requesting-code-review` は execute の Task ゲートには使わない。
 
 ホスト: Cursor は Task ツールで新規サブエージェントを出す。Claude Code は Agent ツールで出す。モデル名はフレームワークが固定しない。ホストが隔離サブエージェントを出せないときは `HOST_SUBAGENT_UNAVAILABLE` で止まり、コントローラセッションで実装しない。
 
@@ -270,7 +277,7 @@ detached HEAD では 1 を出さない（2 / 3 / 4）。
 
 ## License
 
-フレームワークは MIT。Superpowers 由来の plan / execute / finish / プロンプトを適応する部分は、Superpowers の MIT 表示を `LICENSE-superpowers.txt` に残す。grill-with-docs は規律の参照であり、そのスキルファイルはコピーしない。
+フレームワークは MIT。Superpowers 由来の plan / execute / finish / プロンプトを適応する部分と、vendor した TDD / デバッグ / 検証 / worktree / レビュー skills は、Superpowers の MIT 表示を `LICENSE-superpowers.txt` に残す。grill-with-docs は規律の参照であり、そのスキルファイルはコピーしない。パイプライン skills（brainstorming, writing-plans, executing-plans, subagent-driven-development, finishing-a-development-branch, using-superpowers）はコピーせず、sdd-* が担う。
 
 ## Success
 

@@ -27,9 +27,10 @@ Subagent task:
     ## Your Job
 
     Once you're clear:
-    1. Follow TDD: write a failing test, run it and confirm it fails for the
-       expected reason, write the minimal code, run the test and confirm it
-       passes. Repeat per step in the brief.
+    1. Follow test-driven-development (RED-GREEN-REFACTOR). If that skill
+       is available, read and obey it. Minimum: write a failing test, run
+       it and confirm it fails for the expected reason, write the minimal
+       code, run the test and confirm it passes. Repeat per step in the brief.
     2. Run the focused test while iterating; run the full suite once before
        commit.
     3. Commit.

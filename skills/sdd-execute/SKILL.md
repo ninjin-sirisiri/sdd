@@ -7,7 +7,7 @@ description: Execute an SDD plan with one isolated implementer per task, a spec+
 
 Announce: "I'm using sdd-execute."
 
-Do not invoke Superpowers subagent-driven-development. Do not pin a model name.
+Do not invoke Superpowers subagent-driven-development. Do not pin a model name. Per-task review uses this skill's prompts and `scripts/review-package`, not requesting-code-review. Do not use dispatching-parallel-agents for plan implementers.
 
 ## Preconditions
 

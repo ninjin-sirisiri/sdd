@@ -5,7 +5,7 @@ description: Classify a change, interview until shared understanding, write CONT
 
 # SDD Design
 
-Do not invoke Superpowers, grill-with-docs, grilling, or domain-modeling. This skill contains those rules.
+Do not invoke the Superpowers plugin, grill-with-docs, grilling, or domain-modeling. Design rules live in this skill. For bounded implementation after yes, use test-driven-development.
 
 Announce: "I'm using sdd-design."
 
@@ -42,7 +42,7 @@ Offer an ADR only when all three gates in docs/formats/adr.md hold. After the hu
 
 **Spike:** Two or three sentences for the probe, get a nod, investigate cheaply, report a recommendation. Label leftover code throwaway. No spec or plan. Glossary/ADR writes still apply if they qualify.
 
-**Bounded:** Short design in chat. Stop until an explicit yes. Then TDD in this session. No spec file, no plan file.
+**Bounded:** Short design in chat. Stop until an explicit yes. Then use test-driven-development in this session. No spec file, no plan file.
 
 **Architectural:** Propose 2–3 approaches, recommended first. Present the design in sections; wait for approval after each. Then write `docs/sdd/specs/YYYY-MM-DD-<topic>-design.md` and render it. Self-review: no placeholders, no contradictions, one interpretation per requirement, scope that fits one plan. Commit the spec plus this session's CONTEXT.md / ADR / HTML changes. Ask the human to review the spec file. Further spec edits are new commits (do not amend). After they approve, use sdd-plan. Do not use writing-plans.
 

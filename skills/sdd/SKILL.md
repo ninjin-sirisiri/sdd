@@ -1,6 +1,6 @@
 ---
 name: sdd
-description: Route spec-driven work to sdd-design, sdd-plan, sdd-execute, or sdd-finish. Use when the user wants SDD, a spec, a plan, implementation of a plan, or to finish a branch.
+description: Route spec-driven work to sdd-design, sdd-plan, sdd-execute, or sdd-finish, and supporting Superpowers skills (TDD, debugging, verification). Use when the user wants SDD, a spec, a plan, implementation, a branch finish, TDD, or systematic debugging.
 ---
 
 # SDD
@@ -16,9 +16,16 @@ This directory is the pack root. Install the whole pack. Never copy one SKILL.md
 | Plan exists, implement it | sdd-execute |
 | Implementation green, integrate | sdd-finish |
 | User asks to "just implement" something architectural | sdd-design first |
+| Bounded feature, bugfix, or refactor (no architectural spec) | test-driven-development |
+| Bug, test failure, or unexpected behavior | systematic-debugging |
+| About to claim complete, fixed, or passing | verification-before-completion |
+| Isolated workspace / git worktree | using-git-worktrees |
+| Review outside sdd-execute | requesting-code-review |
+| Acting on review feedback | receiving-code-review |
+| 2+ independent investigations (not plan tasks) | dispatching-parallel-agents |
 
 Do not run sdd-execute without a plan file. Do not run architectural implementation without a spec file.
 
-Do not invoke Superpowers or grill-with-docs.
+Do not invoke the Superpowers plugin or grill-with-docs. Supporting skills in this pack are the Superpowers copies (TDD, debugging, verification, worktrees, review). Pipeline skills stay sdd-* — do not use brainstorming, writing-plans, executing-plans, subagent-driven-development, or finishing-a-development-branch.
 
 Pack root = the directory containing `skills/` and `scripts/`.

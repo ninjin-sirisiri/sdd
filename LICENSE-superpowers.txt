@@ -1,4 +1,9 @@
-Portions of the plan, execute, finish, and prompt text are adapted from Superpowers, licensed MIT:
+Portions of the plan, execute, finish, and prompt text are adapted from Superpowers, licensed MIT.
+
+These skills are vendored from Superpowers 6.3.0 (obra/superpowers):
+test-driven-development, systematic-debugging, verification-before-completion,
+using-git-worktrees, requesting-code-review, receiving-code-review,
+dispatching-parallel-agents.
 
 MIT License
 
