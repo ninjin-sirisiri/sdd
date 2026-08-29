@@ -1,31 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-import re
 import sys
 
-TASK_RE = re.compile(r"^## Task (\d+):")
-
-
-def extract_task(plan_text: str, n: int) -> str | None:
-    in_fence = False
-    capturing = False
-    chunks: list[str] = []
-    for line in plan_text.splitlines(keepends=True):
-        stripped = line.rstrip("\n")
-        if stripped.startswith("```"):
-            in_fence = not in_fence
-        match = None if in_fence else TASK_RE.match(stripped)
-        if match:
-            num = int(match.group(1))
-            if capturing:
-                break
-            capturing = num == n
-        if capturing:
-            chunks.append(line)
-    if not chunks:
-        return None
-    return "".join(chunks)
+from sddlib.md import extract_task
 
 
 def write_brief(plan_path: Path, n: int, *, cwd: Path) -> Path:

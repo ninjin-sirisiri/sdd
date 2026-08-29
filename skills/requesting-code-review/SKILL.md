@@ -1,6 +1,6 @@
 ---
 name: requesting-code-review
-description: Use when completing tasks, implementing major features, or before merging to verify work meets requirements
+description: Use outside sdd-execute when the human requests a review after a major feature or before merging. Do not use for sdd-execute task gates.
 ---
 
 # Requesting Code Review

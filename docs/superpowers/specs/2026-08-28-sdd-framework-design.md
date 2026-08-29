@@ -108,7 +108,7 @@ sdd-design → sdd-plan → sdd-execute → sdd-finish
 - `briefs/task-N-brief.md`
 - `reports/task-N-report.md`
 - `reviews/task-N.diff.md`（review-package の出力）
-- `progress.md`
+- `progress.md`（先頭に `Branch baseline: <full-sha>`、各 Task の complete 行）
 
 正本は git のコミットと `CONTEXT.md` / ADR / spec / plan。レジャーは復旧用スクラッチで、コミットしない。
 
@@ -194,7 +194,7 @@ plan 先頭は次のヘッダを必須とする:
 
 `.gitignore` に `.sdd/` が無ければ追記し、そのファイルだけを先にコミットする。その後に未コミットの変更があれば止まり、コミットか退避を人間に確認する。Task 1 の前に plan を一度スキャンし、矛盾や Global Constraints 違反になりうる指定があれば、発見をまとめて一度だけ人間に聞く。問題が無ければ黙って Task 1 に入る。
 
-`git clean -fdx` はレジャーを消す。消えたら `git log` から復旧し、完了済み Task を再実行しない。
+`git clean -fdx` はレジャーを消す。消えたら `git log` から復旧し、完了済み Task を再実行しない。execute 開始時（または再開時）に `.sdd/progress.md` の `Branch baseline: <full-sha>` を読む。無ければ現在の `HEAD` のフル SHA を書いて、final review の base にする。
 
 各 Task:
 
@@ -212,7 +212,7 @@ plan 先頭は次のヘッダを必須とする:
 
 コンパクション後はレジャーと `git log` を信じ、完了済み Task を再ディスパッチしない。`NEEDS_CONTEXT` / `BLOCKED` は文脈を足すか Task を割るか plan を直してから再ディスパッチする。同じ指示で同じ失敗を繰り返さない。
 
-全 Task 通過後に final reviewer を 1 回出す。finding があれば fix サブエージェントは 1 つ（finding ごとに切らない）。その後 `sdd-finish`。
+全 Task 通過後に `review-package` へその branch baseline と `HEAD` を渡し、final reviewer を 1 回出す。finding があれば fix サブエージェントは 1 つ（finding ごとに切らない）。その後 `sdd-finish`。
 
 プロンプト雛形は `skills/sdd-execute/` に置く。implementer、task-reviewer、final-reviewer。差分をプロンプトに貼らない。
 
@@ -241,13 +241,13 @@ detached HEAD では 1 を出さない（2 / 3 / 4）。
 
 スクリプトは欠けている親ディレクトリを自分で作る。呼び出しは `python3 <pack>/scripts/<name> ...`。
 
-**`render-docs`** — 引数の Markdown パス（または既定ルート: `CONTEXT.md`、`docs/adr/`、`docs/sdd/specs/`、`docs/sdd/plans/`）を HTML にする。正本は書き換えない。隣接する `.html` を書く。最初の実行で `docs/sdd/assets/sdd.css` が無ければパックの `assets/sdd.css` をコピーする。変換器は `scripts/_vendor/` に置いた mistune を使い、実行時ネットワークに依存しない。同じ入力で同じ HTML（タイムスタンプを埋め込まない）。失敗しても正本は残し、非ゼロ終了と stderr 警告にする。呼び出し元スキルは終了コードを記録して設計を続行する。
+**`render-docs`** — 引数の Markdown パス（`.md` / `.markdown` のみ。または既定ルート: `CONTEXT.md`、`docs/adr/`、`docs/sdd/specs/`、`docs/sdd/plans/`）を HTML にする。正本は書き換えない。入力と出力の解決済みパスが同一なら書き込まずに失敗する。隣接する `.html` を書く。生 HTML は escape し、restrictive CSP を付ける。最初の実行で `docs/sdd/assets/sdd.css` が無ければパックの `assets/sdd.css` をコピーする。変換器は `scripts/_vendor/` に置いた mistune を使い、実行時ネットワークに依存しない。同じ入力で同じ HTML（タイムスタンプを埋め込まない）。失敗しても正本は残し、非ゼロ終了と stderr 警告にする。呼び出し元スキルは終了コードを記録して設計を続行する。
 
 **`task-brief`** — `task-brief PLAN_FILE N`。`## Task N:` から次の `## Task` 直前（または EOF）までを抜き、`.sdd/briefs/task-N-brief.md` に書く。パスを stdout に出す。Task N が無ければ非ゼロ。前後の Task を混ぜない。Global Constraints は brief に含めない（execute が別途渡す）。
 
-**`review-package`** — `review-package BASE HEAD -o PATH`。`-o` は必須。ログ、stat、`-U10` diff をそのファイルに書く。`HEAD~1` を使わない。パスを stdout に出す。
+**`review-package`** — `review-package BASE HEAD -o PATH`。`-o` は必須。`BASE` が `HEAD` の祖先でなければ非ゼロ。ログ、stat、`-U10` diff をそのファイルに書く。git 出力は UTF-8 として decode し、不正バイトは置換する。`HEAD~1` を使わない。パスを stdout に出す。
 
-**`stack-prs`** — `stack-prs --base BRANCH --ledger PATH --plan PATH [--dry-run]`。`--dry-run` では branch 作成・push・`gh` をしない。本番はレジャー順に `sdd-stack/task-N` を各 Task の head に置き、PR を積む。PR 本文に plan の当該 `## Task N:` 見出しと plan 先頭の Goal を載せる。
+**`stack-prs`** — `stack-prs --base BRANCH --ledger PATH --plan PATH [--dry-run]`。副作用の前に plan と ledger の Task 集合・順序、base/head の commit 解決、祖先関係、隣接範囲の連続性、既存 `sdd-stack/task-N` ref を検証する。失敗時は branch 更新・push・`gh` をしない。`--dry-run` では検証だけ行い、branch 作成・push・`gh` をしない。`--help` は終了コード 0。本番はレジャー順に `sdd-stack/task-N` を各 Task の head に置き、PR を積む。既存 ref は欠落か同一 SHA のときだけ更新し、`update-ref` に expected-old-value を付ける。PR 本文に plan の当該 `## Task N:` 見出しと plan 先頭の Goal を載せる。
 
 ## Error handling
 

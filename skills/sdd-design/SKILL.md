@@ -15,7 +15,7 @@ Say spike / bounded / architectural out loud. When unsure, take the heavier path
 
 ## Explore
 
-Read CONTEXT.md (or ask which file if CONTEXT-MAP.md exists), docs/adr/, README, and enough code that the codebase can answer questions instead of the human.
+Read the consuming repo's CONTEXT.md (or ask which file if CONTEXT-MAP.md exists), docs/adr/, README, and enough code that the codebase can answer questions instead of the human.
 
 ## Interview
 
@@ -26,7 +26,7 @@ Read CONTEXT.md (or ask which file if CONTEXT-MAP.md exists), docs/adr/, README,
 
 ## CONTEXT.md
 
-When a term resolves, write it immediately using docs/formats/context.md. Then run:
+When a term resolves, write it immediately using the template at `<pack-root>/docs/formats/context.md`. Then run:
 
 ```text
 python3 <pack-root>/scripts/render-docs CONTEXT.md
@@ -36,7 +36,7 @@ If render-docs exits non-zero, warn and continue. Never put implementation detai
 
 ## ADRs
 
-Offer an ADR only when all three gates in docs/formats/adr.md hold. After the human agrees, write `docs/adr/NNNN-slug.md` and render that file. If a gate is missing, put the decision in the spec instead (architectural) or keep it in the short chat design (bounded).
+Offer an ADR only when all three gates in `<pack-root>/docs/formats/adr.md` hold. After the human agrees, write `docs/adr/NNNN-slug.md` in the consuming repo and render that file. If a gate is missing, put the decision in the spec instead (architectural) or keep it in the short chat design (bounded).
 
 ## Endings
 
@@ -50,4 +50,4 @@ Spec must record: classification, chosen approach, architecture, components, dat
 
 ## Pack root
 
-Resolve `<pack-root>` as the directory that contains `scripts/` and `skills/`. Do not copy this SKILL.md alone into another repo.
+`<pack-root>` is the directory that contains `skills/` and `scripts/` — the same definition as the `sdd` skill. Format files are `<pack-root>/docs/formats/context.md` and `<pack-root>/docs/formats/adr.md`. Do not copy this SKILL.md alone into another repo.

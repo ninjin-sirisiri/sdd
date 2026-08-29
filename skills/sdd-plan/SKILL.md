@@ -52,3 +52,5 @@ python3 <pack-root>/scripts/render-docs docs/sdd/plans/<file>.md
 ```
 
 If HTML fails, warn and continue. Commit the plan Markdown and its HTML. Then tell the human to run sdd-execute.
+
+`<pack-root>` is the directory that contains `skills/` and `scripts/` — the same definition as the `sdd` skill.

@@ -1,6 +1,6 @@
 ---
 name: sdd-finish
-description: After implementation is green, merge locally, open one PR, keep the branch, or open stacked PRs one per plan task.
+description: Use after sdd-execute is complete, or after bounded work is green when the user asks to integrate. Merge locally, open one PR, keep the branch, or open stacked PRs one per plan task.
 ---
 
 # SDD Finish
@@ -46,3 +46,5 @@ If the command exits non-zero, report any PR URLs it printed and which tasks rem
 Option 4 is unavailable without a ledger. Do not invent task boundaries from `git log` guesswork.
 
 worktree cleanup is out of scope unless this checkout is a git worktree you created in this session — v1 does not require creating worktrees.
+
+`<pack-root>` is the directory that contains `skills/` and `scripts/` — the same definition as the `sdd` skill.

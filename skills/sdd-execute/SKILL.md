@@ -22,6 +22,15 @@ Do not invoke Superpowers subagent-driven-development. Do not pin a model name. 
 - Claude Code: Agent tool, fresh subagent, no inherited chat.
 - If the host cannot isolate a subagent, stop with `HOST_SUBAGENT_UNAVAILABLE`. Do not implement in this controller session.
 
+## Branch baseline
+
+Before the first Task (and again when resuming after compaction):
+
+1. If `.sdd/progress.md` already has a `Branch baseline: <sha>` line, use that SHA. Do not replace it.
+2. Otherwise resolve `git rev-parse HEAD` to a full SHA and append `Branch baseline: <full-sha>` to `.sdd/progress.md` (create the file if needed).
+
+That SHA is the final-review base. Never pass the literal string `MERGE_BASE`.
+
 ## Loop
 
 Serial tasks only. Never dispatch two implementers at once.
@@ -51,6 +60,12 @@ After compaction, trust the ledger and `git log`. Do not re-dispatch completed t
 
 ## Close
 
-After every task is complete, `review-package MERGE_BASE HEAD -o .sdd/reviews/final.diff.md` and dispatch final-reviewer-prompt.md once, including deferred Minors. If findings remain, one fix subagent for the whole list, then re-run final review. Then use sdd-finish.
+After every task is complete, run:
 
-Pack root is the directory containing `scripts/` and `skills/`.
+```text
+python3 <pack-root>/scripts/review-package BRANCH_BASELINE HEAD -o .sdd/reviews/final.diff.md
+```
+
+`BRANCH_BASELINE` is the `Branch baseline:` SHA recorded above. Then dispatch final-reviewer-prompt.md once, including deferred Minors. If findings remain, one fix subagent for the whole list, then re-run final review. Then use sdd-finish.
+
+`<pack-root>` is the directory containing `skills/` and `scripts/` — the same definition as the `sdd` skill.

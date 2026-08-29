@@ -28,6 +28,8 @@ def test_extracts_only_task_two(tmp_path: Path) -> None:
     assert "UNIQUE_TASK_TWO" in text
     assert "UNIQUE_TASK_ONE" not in text
     assert "**Goal:**" not in text
+    assert "GLOBAL_CONSTRAINT_TOKEN" not in text
+    assert "## Global Constraints" not in text
 
 
 def test_skips_headings_inside_fences(tmp_path: Path) -> None:
@@ -55,6 +57,28 @@ def test_skips_headings_inside_fences(tmp_path: Path) -> None:
     assert text2.startswith("## Task 2: Real two")
     assert "beta" in text2
     assert "still task one" not in text2
+
+
+def test_skips_tilde_and_long_fences(tmp_path: Path) -> None:
+    plan = tmp_path / "plan.md"
+    plan.write_text(
+        "# Plan\n\n"
+        "## Task 1: Real one\n\n"
+        "~~~markdown\n"
+        "## Task 2: Fake tilde\n"
+        "~~~\n\n"
+        "````\n"
+        "## Task 2: Fake long\n"
+        "````\n\n"
+        "## Task 2: Real two\n\n"
+        "beta\n"
+    )
+    result = _run(tmp_path, [str(plan), "2"])
+    assert result.returncode == 0, result.stderr
+    text = Path(result.stdout.strip()).read_text()
+    assert text.startswith("## Task 2: Real two")
+    assert "Fake tilde" not in text
+    assert "Fake long" not in text
 
 
 def test_missing_task_is_exit_3(tmp_path: Path) -> None:

@@ -1,6 +1,6 @@
 ---
 name: using-git-worktrees
-description: Use when starting feature work that needs isolation from current workspace or before executing implementation plans - ensures an isolated workspace exists via native tools or git worktree fallback
+description: Use when the human requests isolation from the current workspace, or before a long execute on a dirty main checkout. Do not use for sdd-execute Task implementers. sdd-execute does not require a new worktree.
 ---
 
 # Using Git Worktrees
@@ -64,28 +64,30 @@ Only proceed to Step 1b if you have no native worktree tool available.
 
 #### Directory Selection
 
-Follow this priority order. Explicit user preference always beats observed filesystem state.
+Follow this priority order. Explicit user preference always beats observed filesystem state. Store the chosen directory in `LOCATION` and use only that path for ignore checks and creation.
 
-1. **Check your instructions for a declared worktree directory preference.** If the user has already specified one, use it without asking.
+1. **Check your instructions for a declared worktree directory preference.** If the user has already specified one, set `LOCATION` to that path without asking.
 
 2. **Check for an existing project-local worktree directory:**
    ```bash
    ls -d .worktrees 2>/dev/null     # Preferred (hidden)
    ls -d worktrees 2>/dev/null      # Alternative
    ```
-   If found, use it. If both exist, `.worktrees` wins.
+   If `.worktrees` exists, `LOCATION=.worktrees`. Else if `worktrees` exists, `LOCATION=worktrees`. If both exist, `.worktrees` wins.
 
-3. **If there is no other guidance available**, default to `.worktrees/` at the project root.
+3. **If there is no other guidance available**, set `LOCATION=.worktrees` at the project root.
 
 #### Safety Verification (project-local directories only)
 
-**MUST verify directory is ignored before creating worktree:**
+**MUST verify the selected directory is ignored before creating a worktree:**
 
 ```bash
-git check-ignore -q .worktrees 2>/dev/null || git check-ignore -q worktrees 2>/dev/null
+git check-ignore -q "$LOCATION"
 ```
 
-**If NOT ignored:** Add to .gitignore, commit the change, then proceed.
+Check only `$LOCATION`. Do not treat a different candidate as proof that the selected path is ignored.
+
+**If NOT ignored:** Add `$LOCATION` to .gitignore, commit the change, then proceed.
 
 **Why critical:** Prevents accidentally committing worktree contents to repository.
 
@@ -112,9 +114,20 @@ if [ -f package.json ]; then npm install; fi
 # Rust
 if [ -f Cargo.toml ]; then cargo build; fi
 
-# Python
-if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-if [ -f pyproject.toml ]; then poetry install; fi
+# Python — detect the installer. pyproject.toml alone is not Poetry.
+if [ -f poetry.lock ] || grep -q '^\[tool\.poetry\]' pyproject.toml 2>/dev/null; then
+  poetry install
+elif [ -f uv.lock ]; then
+  uv sync
+elif [ -f pdm.lock ]; then
+  pdm install
+elif [ -f Pipfile.lock ]; then
+  pipenv install
+elif [ -f requirements.txt ]; then
+  pip install -r requirements.txt
+elif [ -f pyproject.toml ]; then
+  echo "pyproject.toml found but the installer is unclear. Ask the human how to install dependencies; do not run poetry/uv/pip automatically."
+fi
 
 # Go
 if [ -f go.mod ]; then go mod download; fi
@@ -153,7 +166,7 @@ Ready to implement <feature-name>
 | `worktrees/` exists | Use it (verify ignored) |
 | Both exist | Use `.worktrees/` |
 | Neither exists | Check instruction file, then default `.worktrees/` |
-| Directory not ignored | Add to .gitignore + commit |
+| Directory not ignored | Add `$LOCATION` to .gitignore + commit |
 | Permission error on create | Sandbox fallback, work in place |
 | Tests fail during baseline | Report failures + ask |
 | No package.json/Cargo.toml | Skip dependency install |

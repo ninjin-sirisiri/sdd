@@ -16,7 +16,7 @@ Subagent task:
 
     ## Review Package
 
-    Read [DIFF_FILE] (MERGE_BASE..HEAD). Do not re-derive the diff.
+    Read [DIFF_FILE] (branch baseline..HEAD). Do not re-derive the diff.
     Read-only.
 
     ## Deferred Minors

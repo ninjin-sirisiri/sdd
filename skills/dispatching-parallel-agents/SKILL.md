@@ -1,6 +1,6 @@
 ---
 name: dispatching-parallel-agents
-description: Use when facing 2+ independent tasks that can be worked on without shared state or sequential dependencies
+description: Use for 2+ independent investigations with no shared state or sequential dependencies, outside sdd-execute. Do not use for plan Task implementers.
 ---
 
 # Dispatching Parallel Agents

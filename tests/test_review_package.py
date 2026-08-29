@@ -44,6 +44,10 @@ def test_package_includes_all_commits_not_only_last(tmp_path: Path) -> None:
     )
     assert "task commit 1" not in only_last
     assert "task commit 1" in text
+    assert "## Diff" in text
+    assert "+one" in text
+    assert "+two" in text
+    assert "diff --git" in text
 
 
 def test_requires_dash_o(tmp_path: Path) -> None:
@@ -56,3 +60,82 @@ def test_requires_dash_o(tmp_path: Path) -> None:
         capture_output=True,
     )
     assert result.returncode == 2
+
+
+def test_rejects_reversed_range(tmp_path: Path) -> None:
+    init_repo(tmp_path)
+    base = git(tmp_path, "rev-parse", "HEAD").strip()
+    head = _commit(tmp_path, "a.txt", "one\n", "forward")
+    out = tmp_path / "pkg.diff.md"
+    result = subprocess.run(
+        [sys.executable, str(REVIEW), head, base, "-o", str(out)],
+        cwd=tmp_path,
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode != 0
+    assert not out.exists()
+    assert "Traceback" not in result.stderr
+
+
+def test_rejects_unrelated_histories(tmp_path: Path) -> None:
+    init_repo(tmp_path)
+    first = git(tmp_path, "rev-parse", "HEAD").strip()
+    git(tmp_path, "checkout", "--orphan", "other")
+    git(tmp_path, "-c", "user.email=sdd@test", "-c", "user.name=sdd", "commit", "--allow-empty", "-m", "orphan")
+    other = git(tmp_path, "rev-parse", "HEAD").strip()
+    out = tmp_path / "pkg.diff.md"
+    result = subprocess.run(
+        [sys.executable, str(REVIEW), first, other, "-o", str(out)],
+        cwd=tmp_path,
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode != 0
+    assert not out.exists()
+
+
+def test_non_utf8_diff_does_not_traceback(tmp_path: Path) -> None:
+    init_repo(tmp_path)
+    base = git(tmp_path, "rev-parse", "HEAD").strip()
+    path = tmp_path / "latin1.txt"
+    path.write_bytes(b"caf\xe9\n")
+    git(tmp_path, "add", "latin1.txt")
+    git(
+        tmp_path,
+        "-c",
+        "user.email=sdd@test",
+        "-c",
+        "user.name=sdd",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "commit",
+        "--no-verify",
+        "-m",
+        "latin1",
+    )
+    head = git(tmp_path, "rev-parse", "HEAD").strip()
+    out = tmp_path / "pkg.diff.md"
+    result = subprocess.run(
+        [sys.executable, str(REVIEW), base, head, "-o", str(out)],
+        cwd=tmp_path,
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Traceback" not in result.stderr
+    assert out.is_file()
+    assert "latin1.txt" in out.read_text(encoding="utf-8")
+
+
+def test_help_exits_zero() -> None:
+    from sddlib.review import main as review_main
+
+    result = subprocess.run(
+        [sys.executable, str(REVIEW), "--help"],
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode == 0
+    assert "-o" in result.stdout or "--output" in result.stdout
+    assert review_main(["--help"]) == 0

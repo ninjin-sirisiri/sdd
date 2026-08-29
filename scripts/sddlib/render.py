@@ -18,9 +18,20 @@ DEFAULT_GLOBS = (
     "docs/sdd/specs/*.md",
     "docs/sdd/plans/*.md",
 )
+MARKDOWN_SUFFIXES = {".md", ".markdown"}
+_MARKDOWN = mistune.create_markdown(
+    escape=True,
+    plugins=["strikethrough", "footnotes", "table"],
+)
+_CSP = (
+    "default-src 'none'; img-src 'self' data:; style-src 'self'; "
+    "base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+)
 
 
 def html_path_for(md_path: Path) -> Path:
+    if md_path.suffix.lower() not in MARKDOWN_SUFFIXES:
+        raise ValueError(f"not a markdown file: {md_path}")
     return md_path.with_suffix(".html")
 
 
@@ -52,11 +63,13 @@ def _title(md_text: str, stem: str) -> str:
 def _document(body: str, title: str, css_href: str) -> str:
     safe_title = html.escape(title, quote=True)
     safe_href = html.escape(css_href, quote=True)
+    safe_csp = html.escape(_CSP, quote=True)
     return (
         "<!DOCTYPE html>\n"
         '<html lang="und">\n'
         "<head>\n"
         '<meta charset="utf-8">\n'
+        f'<meta http-equiv="Content-Security-Policy" content="{safe_csp}">\n'
         f"<title>{safe_title}</title>\n"
         f'<link rel="stylesheet" href="{safe_href}">\n'
         "</head>\n"
@@ -71,13 +84,18 @@ def render_paths(paths: list[Path], *, cwd: Path, pack_root: Path) -> list[Path]
     written: list[Path] = []
     for md in paths:
         text = md.read_text(encoding="utf-8")
-        html = html_path_for(md)
-        href = _css_href(html, css)
-        html.write_text(
-            _document(mistune.html(text), _title(text, md.stem), href),
+        out = html_path_for(md)
+        if md.resolve() == out.resolve():
+            raise ValueError(f"output path would overwrite input: {md}")
+        href = _css_href(out, css)
+        body = _MARKDOWN(text)
+        if not isinstance(body, str):
+            raise TypeError(f"expected HTML string from markdown renderer, got {type(body)}")
+        out.write_text(
+            _document(body, _title(text, md.stem), href),
             encoding="utf-8",
         )
-        written.append(html)
+        written.append(out)
     return written
 
 

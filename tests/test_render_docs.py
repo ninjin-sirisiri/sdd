@@ -83,3 +83,73 @@ def test_title_special_chars_are_html_escaped(tmp_path: Path) -> None:
     out = (tmp_path / "CONTEXT.html").read_text(encoding="utf-8")
     assert "<title>A &amp; B &lt;/title&gt;</title>" in out
     assert "<title>A & B </title>" not in out
+
+
+def test_refuses_html_input_without_overwriting(tmp_path: Path) -> None:
+    html = tmp_path / "CONTEXT.html"
+    html.write_text("<html>keep-me</html>", encoding="utf-8")
+    result = _run(tmp_path, ["CONTEXT.html"])
+    assert result.returncode != 0
+    assert html.read_text(encoding="utf-8") == "<html>keep-me</html>"
+
+
+def test_refuses_non_markdown_extension(tmp_path: Path) -> None:
+    txt = tmp_path / "notes.txt"
+    txt.write_text("# Hi\n", encoding="utf-8")
+    result = _run(tmp_path, ["notes.txt"])
+    assert result.returncode != 0
+    assert not (tmp_path / "notes.html").exists()
+    assert txt.read_text(encoding="utf-8") == "# Hi\n"
+
+
+def test_raw_html_is_escaped_and_csp_is_present(tmp_path: Path) -> None:
+    md = tmp_path / "CONTEXT.md"
+    md.write_text("# Title\n\n<script>alert(1)</script>\n", encoding="utf-8")
+    result = _run(tmp_path, ["CONTEXT.md"])
+    assert result.returncode == 0, result.stderr
+    out = (tmp_path / "CONTEXT.html").read_text(encoding="utf-8")
+    assert "<script>alert(1)</script>" not in out
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in out
+    assert "Content-Security-Policy" in out
+
+
+def test_markdown_links_become_anchors(tmp_path: Path) -> None:
+    md = tmp_path / "CONTEXT.md"
+    md.write_text("# Title\n\nSee [docs](https://example.com/path).\n", encoding="utf-8")
+    result = _run(tmp_path, ["CONTEXT.md"])
+    assert result.returncode == 0, result.stderr
+    out = (tmp_path / "CONTEXT.html").read_text(encoding="utf-8")
+    assert '<a href="https://example.com/path">' in out
+    assert "docs</a>" in out
+
+
+def test_fixture_html_matches_goldens(tmp_path: Path) -> None:
+    (tmp_path / "docs" / "adr").mkdir(parents=True)
+    (tmp_path / "docs" / "sdd" / "specs").mkdir(parents=True)
+    (tmp_path / "docs" / "sdd" / "plans").mkdir(parents=True)
+    shutil.copy(FIXTURES / "glossary" / "CONTEXT.md", tmp_path / "CONTEXT.md")
+    shutil.copy(FIXTURES / "adr" / "0001-use-postgres.md", tmp_path / "docs" / "adr" / "0001-use-postgres.md")
+    shutil.copy(
+        FIXTURES / "spec" / "2026-01-01-example-design.md",
+        tmp_path / "docs" / "sdd" / "specs" / "2026-01-01-example-design.md",
+    )
+    shutil.copy(
+        FIXTURES / "plan" / "2026-01-01-example.md",
+        tmp_path / "docs" / "sdd" / "plans" / "2026-01-01-example.md",
+    )
+    result = _run(tmp_path, [])
+    assert result.returncode == 0, result.stderr
+    pairs = (
+        (tmp_path / "CONTEXT.html", FIXTURES / "glossary" / "CONTEXT.html"),
+        (tmp_path / "docs" / "adr" / "0001-use-postgres.html", FIXTURES / "adr" / "0001-use-postgres.html"),
+        (
+            tmp_path / "docs" / "sdd" / "specs" / "2026-01-01-example-design.html",
+            FIXTURES / "spec" / "2026-01-01-example-design.html",
+        ),
+        (
+            tmp_path / "docs" / "sdd" / "plans" / "2026-01-01-example.html",
+            FIXTURES / "plan" / "2026-01-01-example.html",
+        ),
+    )
+    for actual, golden in pairs:
+        assert actual.read_text(encoding="utf-8") == golden.read_text(encoding="utf-8")

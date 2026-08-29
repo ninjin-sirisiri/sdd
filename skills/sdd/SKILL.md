@@ -5,7 +5,9 @@ description: Route spec-driven work to sdd-design, sdd-plan, sdd-execute, or sdd
 
 # SDD
 
-This directory is the pack root. Install the whole pack. Never copy one SKILL.md.
+Pack root is the directory that contains `skills/` and `scripts/`. This file lives at `<pack-root>/skills/sdd/SKILL.md`. Install the whole pack. Never copy one SKILL.md.
+
+Format templates live at `<pack-root>/docs/formats/`. Scripts live at `<pack-root>/scripts/`.
 
 ## Route
 
@@ -27,5 +29,3 @@ This directory is the pack root. Install the whole pack. Never copy one SKILL.md
 Do not run sdd-execute without a plan file. Do not run architectural implementation without a spec file.
 
 Do not invoke the Superpowers plugin or grill-with-docs. Supporting skills in this pack are the Superpowers copies (TDD, debugging, verification, worktrees, review). Pipeline skills stay sdd-* — do not use brainstorming, writing-plans, executing-plans, subagent-driven-development, or finishing-a-development-branch.
-
-Pack root = the directory containing `skills/` and `scripts/`.
