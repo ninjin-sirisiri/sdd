@@ -2,27 +2,47 @@
 <html lang="und">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src &#x27;none&#x27;; img-src &#x27;self&#x27; data:; style-src &#x27;self&#x27;; base-uri &#x27;none&#x27;; form-action &#x27;none&#x27;; frame-ancestors &#x27;none&#x27;">
 <title>Example Implementation Plan</title>
 <link rel="stylesheet" href="../assets/sdd.css">
 </head>
 <body>
+<header>
+<p>Plan</p>
+<nav aria-label="On this page">
+<ul>
+<li><a href="#global-constraints">Global Constraints</a></li>
+<li><a href="#file-structure">File structure</a></li>
+<li><a href="#task-1-first-thing">Task 1: First thing</a></li>
+<li><a href="#task-2-second-thing">Task 2: Second thing</a></li>
+</ul>
+</nav>
+</header>
 <main>
-<h1>Example Implementation Plan</h1>
+<h1 id="example-implementation-plan">Example Implementation Plan</h1>
 <p><strong>Goal:</strong> Build the example.</p>
 <p><strong>Architecture:</strong> Two sequential tasks that share one branch.</p>
 <p><strong>Tech Stack:</strong> pytest</p>
 <p><strong>Spec:</strong> docs/sdd/specs/2026-01-01-example-design.md</p>
-<h2>Global Constraints</h2>
+<section>
+<h2 id="global-constraints">Global Constraints</h2>
 <p>Do not leak GLOBAL_CONSTRAINT_TOKEN into a task brief.</p>
-<h2>File structure</h2>
+</section>
+<section>
+<h2 id="file-structure">File structure</h2>
 <ul>
 <li>example.txt</li>
 </ul>
-<h2>Task 1: First thing</h2>
+</section>
+<section>
+<h2 id="task-1-first-thing">Task 1: First thing</h2>
 <p>First body UNIQUE_TASK_ONE.</p>
-<h2>Task 2: Second thing</h2>
+</section>
+<section>
+<h2 id="task-2-second-thing">Task 2: Second thing</h2>
 <p>Second body UNIQUE_TASK_TWO.</p>
+</section>
 
 </main>
 </body>

@@ -123,6 +123,44 @@ def test_markdown_links_become_anchors(tmp_path: Path) -> None:
     assert "docs</a>" in out
 
 
+def test_existing_css_is_replaced_from_pack(tmp_path: Path) -> None:
+    dest = tmp_path / "docs" / "sdd" / "assets" / "sdd.css"
+    dest.parent.mkdir(parents=True)
+    dest.write_text("/* stale */", encoding="utf-8")
+    shutil.copy(FIXTURES / "glossary" / "CONTEXT.md", tmp_path / "CONTEXT.md")
+    result = _run(tmp_path, ["CONTEXT.md"])
+    assert result.returncode == 0, result.stderr
+    pack_css = Path(__file__).resolve().parents[1] / "assets" / "sdd.css"
+    assert dest.read_bytes() == pack_css.read_bytes()
+    assert b"h1" in dest.read_bytes()
+
+
+def test_document_has_landmarks_toc_and_sections(tmp_path: Path) -> None:
+    shutil.copy(FIXTURES / "glossary" / "CONTEXT.md", tmp_path / "CONTEXT.md")
+    result = _run(tmp_path, ["CONTEXT.md"])
+    assert result.returncode == 0, result.stderr
+    out = (tmp_path / "CONTEXT.html").read_text(encoding="utf-8")
+    assert 'name="viewport"' in out
+    assert "<header>" in out
+    assert "<p>Glossary</p>" in out
+    assert 'aria-label="On this page"' in out
+    assert '<a href="#terms">Terms</a>' in out
+    assert '<h1 id="ordering">Ordering</h1>' in out
+    assert '<section>\n<h2 id="terms">Terms</h2>' in out
+
+
+def test_duplicate_headings_get_unique_ids(tmp_path: Path) -> None:
+    md = tmp_path / "CONTEXT.md"
+    md.write_text("# Title\n\n## Same\n\nA\n\n## Same\n\nB\n", encoding="utf-8")
+    result = _run(tmp_path, ["CONTEXT.md"])
+    assert result.returncode == 0, result.stderr
+    out = (tmp_path / "CONTEXT.html").read_text(encoding="utf-8")
+    assert 'id="same"' in out
+    assert 'id="same-1"' in out
+    assert '<a href="#same">Same</a>' in out
+    assert '<a href="#same-1">Same</a>' in out
+
+
 def test_fixture_html_matches_goldens(tmp_path: Path) -> None:
     (tmp_path / "docs" / "adr").mkdir(parents=True)
     (tmp_path / "docs" / "sdd" / "specs").mkdir(parents=True)
