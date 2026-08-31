@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="und">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src &#x27;none&#x27;; img-src &#x27;self&#x27; data:; style-src &#x27;self&#x27;; base-uri &#x27;none&#x27;; form-action &#x27;none&#x27;; frame-ancestors &#x27;none&#x27;">
+<title>0001. Land stacked PRs without restack</title>
+<link rel="stylesheet" href="../sdd/assets/sdd.css">
+</head>
+<body>
+<header>
+<p>ADR</p>
+</header>
+<main>
+<h1 id="0001-land-stacked-prs-without-restack">0001. Land stacked PRs without restack</h1>
+<p>GitHub review on a lower stacked PR needs new commits, and the usual fix is to rebase descendants and force-push. Review fixes update the existing <code>sdd-stack/task-N</code> ref in place, descendants are not restacked, and the stack is integrated by landing from the bottom. Extra branches would break the merge chain, and restack would need force-push, which this pack does not allow.</p>
+
+</main>
+</body>
+</html>

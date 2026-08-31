@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="und">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src &#x27;none&#x27;; img-src &#x27;self&#x27; data:; style-src &#x27;self&#x27;; base-uri &#x27;none&#x27;; form-action &#x27;none&#x27;; frame-ancestors &#x27;none&#x27;">
+<title>SDD</title>
+<link rel="stylesheet" href="docs/sdd/assets/sdd.css">
+</head>
+<body>
+<header>
+<p>Glossary</p>
+<nav aria-label="On this page">
+<ul>
+<li><a href="#terms">Terms</a></li>
+</ul>
+</nav>
+</header>
+<main>
+<h1 id="sdd">SDD</h1>
+<p>Skill pack for spec-driven design, plans, isolated execution, and stacked PRs.</p>
+<section>
+<h2 id="terms">Terms</h2>
+<p><strong>Implementation worktree</strong>:
+The optional isolated git checkout created before execute (or bounded TDD). At most one per plan. Its branch is not a stack branch.</p>
+<p><em>Avoid</em>: review worktree</p>
+<p><strong>Review worktree</strong>:
+A git worktree attached to an existing stack branch so that stacked PR can be updated in place.</p>
+<p><em>Avoid</em>: review branch, fix branch</p>
+<p><strong>Stack branch</strong>:
+The git ref <code>sdd-stack/task-N</code> that is the head of that task's stacked PR. Review fixes move this ref; they do not add another branch.</p>
+<p><em>Avoid</em>: worktree</p>
+<p><strong>Land</strong>:
+Merge stacked PRs from the bottom of the stack into the confirmed base branch, without rebasing or restacking descendants.</p>
+<p><em>Avoid</em>: restack</p>
+</section>
+
+</main>
+</body>
+</html>
