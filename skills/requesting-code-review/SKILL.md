@@ -1,33 +1,35 @@
 ---
 name: requesting-code-review
-description: Use outside sdd-execute when the human requests a review after a major feature or before merging. Do not use for sdd-execute task gates.
+description: Use when the human requests a review after a major feature or before merging. Do not use as an sdd-execute task gate.
 ---
 
 # Requesting Code Review
 
-Inside sdd-execute, do not use this skill. Use `task-reviewer-prompt.md` and `scripts/review-package`. This skill is for reviews outside the execute loop.
+sdd-execute does not review as a gate. Use this skill only when the human asks for a review, or before merge if they want one. The reviewer gets precisely crafted context — never your session's history.
 
-Dispatch a code reviewer subagent to catch issues before they cascade. The reviewer gets precisely crafted context for evaluation — never your session's history.
-
-**Core principle:** Review early, review often.
+**Core principle:** Review when asked, with isolated context.
 
 ## When to Request Review
 
-**Mandatory:**
-- After each task in sdd-execute — use that skill's task reviewer, not this one
-- After completing major feature (outside sdd-execute)
-- Before merge to main (outside sdd-execute)
+**Use:**
+- The human asked for a review
+- After completing a major feature (outside the execute loop)
+- Before merge to main, if they want a review
 
-**Optional but valuable:**
+**Optional:**
 - When stuck (fresh perspective)
 - Before refactoring (baseline check)
-- After fixing complex bug
+- After fixing a complex bug
+
+**Do not use:**
+- After each sdd-execute Task — the controller judges complete and moves on
+- As a substitute for sdd-execute's completeness check
 
 ## How to Request
 
 **1. Get git SHAs:**
 ```bash
-BASE_SHA=$(git rev-parse HEAD~1)  # or origin/main
+BASE_SHA=$(git merge-base HEAD origin/main)  # or the execute branch baseline
 HEAD_SHA=$(git rev-parse HEAD)
 ```
 
@@ -50,28 +52,16 @@ Dispatch a `general-purpose` subagent, filling the template at [code-reviewer.md
 ## Example
 
 ```
-[Just completed Task 2: Add verification function]
-
-You: Let me request code review before proceeding.
+[Human asked for a review after Task 2]
 
 BASE_SHA=$(git log --oneline | grep "Task 1" | head -1 | awk '{print $1}')
 HEAD_SHA=$(git rev-parse HEAD)
 
 [Dispatch code reviewer subagent]
   DESCRIPTION: Added verifyIndex() and repairIndex() with 4 issue types
-  PLAN_OR_REQUIREMENTS: Task 2 from docs/superpowers/plans/deployment-plan.md
+  PLAN_OR_REQUIREMENTS: Task 2 from docs/sdd/plans/deployment-plan.md
   BASE_SHA: a7981ec
   HEAD_SHA: 3df7661
-
-[Subagent returns]:
-  Strengths: Clean architecture, real tests
-  Issues:
-    Important: Missing progress indicators
-    Minor: Magic number (100) for reporting interval
-  Assessment: Ready to proceed
-
-You: [Fix progress indicators]
-[Continue to Task 3]
 ```
 
 ## Common Rationalizations
@@ -84,9 +74,7 @@ You: [Fix progress indicators]
 ## Red Flags
 
 **Never:**
-- Skip review because "it's simple"
-- Ignore Critical issues
-- Proceed with unfixed Important issues
+- Ignore Critical issues the human asked you to address
 - Argue with valid technical feedback
 
 **If reviewer wrong:**

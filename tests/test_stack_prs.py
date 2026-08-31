@@ -49,6 +49,18 @@ def _two_task_repo(tmp_path: Path) -> tuple[Path, Path]:
     return ledger, plan
 
 
+def test_parse_ledger_without_review_suffix() -> None:
+    text = (
+        "Task 1: complete (commits abc1234..def5678)\n"
+        "Task 2: complete (commits def5678..aaa9012, review clean)\n"
+    )
+    items = parse_ledger(text)
+    assert [i.number for i in items] == [1, 2]
+    assert items[0].base == "abc1234"
+    assert items[0].head == "def5678"
+    assert items[1].head == "aaa9012"
+
+
 def test_parse_ledger_ignores_rulings() -> None:
     text = (
         "Ruling: picked names — clarity — low\n"

@@ -6,7 +6,7 @@ import re
 from sddlib.md import extract_task_heading, iter_unfenced_lines
 
 LEDGER_RE = re.compile(
-    r"^Task (\d+): complete \(commits ([0-9a-f]+)\.\.([0-9a-f]+), review clean\)\s*$"
+    r"^Task (\d+): complete \(commits ([0-9a-f]+)\.\.([0-9a-f]+)(?:, review clean)?\)\s*$"
 )
 GOAL_RE = re.compile(r"^\*\*Goal:\*\*\s*(.*)$")
 BASELINE_RE = re.compile(r"^Branch baseline: ([0-9a-f]+)\s*$")

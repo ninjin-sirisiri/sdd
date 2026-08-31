@@ -41,7 +41,8 @@ Superpowers の分類・承認ゲート・plan・サブエージェント実行�
 skills/sdd/
 skills/sdd-design/
 skills/sdd-plan/
-skills/sdd-execute/          # implementer / task-reviewer / final-reviewer
+skills/sdd-execute/          # implementer prompt; controller judges complete
+skills/sdd-goal/             # Claude Code /goal analog
 skills/sdd-finish/
 skills/test-driven-development/   # Superpowers 6.3.0, vendored
 skills/systematic-debugging/
@@ -76,6 +77,8 @@ Claude Code はローカルプラグインマニフェストから同じ `skills
 sdd-design → sdd-plan → sdd-execute → sdd-finish
 ```
 
+`sdd-goal` は完了条件までセッションを進める（Claude Code `/goal` 相当）。条件が plan なら `sdd-execute` を回す。
+
 入口スキル `sdd` が経路を選ぶ。spec なしの architectural 実装、plan なしの `sdd-execute` は止める。
 
 | 分類 | spec ファイル | plan | execute | finish |
@@ -107,7 +110,7 @@ sdd-design → sdd-plan → sdd-execute → sdd-finish
 
 - `briefs/task-N-brief.md`
 - `reports/task-N-report.md`
-- `reviews/task-N.diff.md`（review-package の出力）
+- `reviews/`（任意。人間が頼んだレビューや `review-package` 用）
 - `progress.md`（`Worktree: created <path>` / `in-place` / `existing <path>`、`Branch baseline: <full-sha>`、各 Task の complete 行）
 
 正本は git のコミットと `CONTEXT.md` / ADR / spec / plan。レジャーは復旧用スクラッチで、コミットしない。
@@ -116,7 +119,7 @@ v1 はルートの `CONTEXT.md` のみ。`CONTEXT-MAP.md` がある場合は、�
 
 ## `sdd`（入口）
 
-いつどのスキルを使うかを決める。ユーザーが実装だけを頼んでも、architectural 相当なら `sdd-design` から始める。plan がある状態で「実行して」なら `sdd-execute`。コントローラが実装を始める直前（execute の Task 1、または execute の implementer ではない TDD）に、隔離 worktree を作るかを一度聞く。実装が終わりテストが緑なら `sdd-finish`。バグやテスト失敗は `systematic-debugging`。bounded 実装は `test-driven-development`。完了宣言の前は `verification-before-completion`。
+いつどのスキルを使うかを決める。ユーザーが実装だけを頼んでも、architectural 相当なら `sdd-design` から始める。plan がある状態で「実行して」なら `sdd-execute`。完了条件まで手を離して進めたいなら `sdd-goal`。コントローラが実装を始める直前（execute の Task 1、または execute の implementer ではない TDD）に、隔離 worktree を作るかを一度聞く。実装が終わりテストが緑なら `sdd-finish`。バグやテスト失敗は `systematic-debugging`。bounded 実装は `test-driven-development`。ブランチ完了の宣言の前は `verification-before-completion`（finish）。execute の Task ゲートには使わない。
 
 ## `sdd-design`
 
@@ -184,37 +187,41 @@ plan 先頭は次のヘッダを必須とする:
 - Spec パス
 - Global Constraints（spec から数値と文言をそのままコピー）
 
-その後、ファイル構成、Task 列。各 Task は独立したテストとレビューを持てる最小単位。セットアップやドキュメントだけの Task は作らず、それが必要な成果物の Task に含める。Task 見出しは正確に `## Task N: <title>`（例: `## Task 1: Render docs script`）。この番号が brief 抽出と stacked PR の境界になる。step は Task 内の作業であり、PR 単位ではない。
+その後、ファイル構成、Task 列。各 Task はサブエージェントが終え、コントローラが完了と判定できる最小単位。セットアップやドキュメントだけの Task は作らず、それが必要な成果物の Task に含める。Task 見出しは正確に `## Task N: <title>`（例: `## Task 1: Render docs script`）。この番号が brief 抽出と stacked PR の境界になる。step は Task 内の作業であり、PR 単位ではない。
 
 ## `sdd-execute`
 
-1 ブランチのまま、Task を直列に実行する。実装サブエージェントを並列に出さない。TDD は `test-driven-development` スキルに従う。implementer プロンプトにも RED-GREEN の最低契約を残し、スキルが読めないサブエージェントでも TDD する。再レビューも同じ task-reviewer 雛形を使う。`requesting-code-review` は execute の Task ゲートには使わない。
+1 ブランチのまま、Task を直列に実行する。実装サブエージェントを並列に出さない。Task ごとに 1 つの implementer を出し、コントローラが「完了した」と判断したら次の Task へ進む。実装とレビューの往復はしない。`requesting-code-review` は人間が頼んだときだけ。TDD スキルは使えるが、Task ゲートではない。
 
 ホスト: Cursor は Task ツールで新規サブエージェントを出す。Claude Code は Agent ツールで出す。モデル名はフレームワークが固定しない。ホストが隔離サブエージェントを出せないときは `HOST_SUBAGENT_UNAVAILABLE` で止まり、コントローラセッションで実装しない。
 
 `.gitignore` に `.sdd/` が無ければ追記し、そのファイルだけを先にコミットする。Task 1 の前に plan を一度スキャンし、矛盾や Global Constraints 違反になりうる指定があれば、発見をまとめて一度だけ人間に聞く。問題が無ければ、隔離 worktree を作るかを一度だけ聞く（必須ではない）。既に linked worktree にいる、会話で希望が済んでいる、またはレジャーに `Worktree:` がある場合は聞かない。作るなら `using-git-worktrees` を使い、その worktree で execute を続ける。拒否なら現在の checkout で進む。同意は execute 側で取るので、worktree スキルで二度聞かない。答えは `.sdd/progress.md` に残し、コンパクション後に聞き直さない。実装する checkout が（`.gitignore` 追記コミットの後も）汚れていれば止まり、コミットか退避を人間に確認する。元の checkout の汚れは、新しい worktree に移ったあとは止めない。
 
-`git clean -fdx` はレジャーを消す。消えたら `git log` から復旧し、完了済み Task を再実行しない。execute 開始時（または再開時）に `.sdd/progress.md` の `Branch baseline: <full-sha>` を読む。無ければ現在の `HEAD` のフル SHA を書いて、final review の base にする。
+`git clean -fdx` はレジャーを消す。消えたら `git log` から復旧し、完了済み Task を再実行しない。execute 開始時（または再開時）に `.sdd/progress.md` の `Branch baseline: <full-sha>` を読む。無ければ現在の `HEAD` のフル SHA を書く。stacked PR の起点になる。
 
 各 Task:
 
 1. ディスパッチ前に `HEAD` を base として記録する。
-2. `task-brief` で `.sdd/briefs/task-N-brief.md` を切る。実装サブエージェントに plan 全体を読ませない。質問があれば実装前に答え、同じ implementer 契約で再開する。
-3. implementer は TDD、コミット、自己レビューをし、`.sdd/reports/task-N-report.md` にフルレポートを書く。チャットには status、コミット、テスト 1 行、concerns だけ返す。
-4. status は `DONE` / `DONE_WITH_CONCERNS` / `NEEDS_CONTEXT` / `BLOCKED` のいずれか。
-5. `DONE_WITH_CONCERNS` の懸念が正しさや範囲なら、レビュー前に解消する。観察（ファイルが大きい等）ならレジャーに残してレビューへ進む。
-6. `DONE` または観察のみの `DONE_WITH_CONCERNS` なら、`review-package BASE HEAD -o .sdd/reviews/task-N.diff.md` で diff ファイルを作り（再レビュー時は上書き）、task reviewer に brief・report・diff パスと Global Constraints を渡す。
-7. reviewer は spec 準拠と品質の 2 つの判定を返す。Critical / Important は fix して再レビュー。Minor はレジャーに残し、final review で扱う。
-8. reviewer が plan 本文と矛盾する finding を出したら、fix せず、plan 原文と finding を並べて人間に一度だけ聞く。
-9. レビュー通過後、`.sdd/progress.md` に `Task N: complete (commits <base7>..<head7>, review clean)` を追記する。head は fix コミットを含む最終 `HEAD`。この範囲が stacked PR の入力になる。
+2. `task-brief` で `.sdd/briefs/task-N-brief.md` を切る。実装サブエージェントに plan 全体を読ませない。Global Constraints は execute が implementer へ別途渡す。
+3. implementer は brief を実装し、brief が名指ししたテストを走らせ、コミットし、短いレポートを `.sdd/reports/task-N-report.md` に書く。チャットには status、コミット、テスト 1 行、notes だけ返す。
+4. status は `DONE` / `NEEDS_CONTEXT` / `BLOCKED` のいずれか。
+5. コントローラが完了を判定する。レビューサブエージェントは出さない。完了の条件はすべて真: `DONE`、brief の成果物がある、名指しテストがこの Task で通っている、コードがある brief なら `HEAD` が BASE から進んでいる。
+6. 未完了なら、欠けているものを一度だけ同じ契約で再開する。二度目も未完了なら止まる。レビューループにしない。
+7. 完了したら `.sdd/progress.md` に `Task N: complete (commits <base7>..<head7>)` を追記し、人間に聞かず Task N+1 を始める。head は最終 `HEAD`。この範囲が stacked PR の入力になる。旧レジャーの `, review clean` はパーサが無視して読んでよい。
 
-コントローラが止まってよいのは次だけ: 破壊的操作、セキュリティ、worktree 外の副作用（共有ブランチへの push、merge、公開）、計画が壊れていて次が推測になるとき。それ以外の曖昧さは spec を正とし、判断をレジャーに `Ruling: <決定> — <理由> — <間違えたときのコスト>` と書いて進む。
+コントローラが止まってよいのは次だけ: 破壊的操作、セキュリティ、worktree 外の副作用（共有ブランチへの push、merge、公開）、計画が壊れていて次が推測になるとき。それ以外の曖昧さは spec を正とし、判断をレジャーに `Ruling: <決定> — <理由> — <間違えたときのコスト>` と書いて進む。Task のあいだで「次へ進みますか」と聞かない。
 
 コンパクション後はレジャーと `git log` を信じ、完了済み Task を再ディスパッチしない。`NEEDS_CONTEXT` / `BLOCKED` は文脈を足すか Task を割るか plan を直してから再ディスパッチする。同じ指示で同じ失敗を繰り返さない。
 
-全 Task 通過後に `review-package` へその branch baseline と `HEAD` を渡し、final reviewer を 1 回出す。finding があれば fix サブエージェントは 1 つ（finding ごとに切らない）。その後 `sdd-finish`。
+全 Task 完了後は `sdd-finish`。final reviewer は出さない。
 
-プロンプト雛形は `skills/sdd-execute/` に置く。implementer、task-reviewer、final-reviewer。差分をプロンプトに貼らない。
+プロンプト雛形は `skills/sdd-execute/implementer-prompt.md`。差分をプロンプトに貼らない。
+
+## `sdd-goal`
+
+Claude Code の `/goal` 相当。完了条件を決め、満たすまでセッションを進める。Stop hook は入れない。Claude Code のネイティブ `/goal` オーバーレイは置き換えない。
+
+条件は呼び出し引数かユーザー文から取る。曖昧なら、このセッションの出力で yes/no できる一文に直してから動く。plan を終える条件なら `sdd-execute` を使う。Cursor では CreateGoal / UpdateGoal を使う（ユーザーが goal を明示したときだけ）。判定はサブエージェントや background shell が走っているあいだはしない。満たしたら止まる。不可能、またはコントローラ停止条件に当たったら人間に返す。進捗なしで回り続けない。
 
 ## `sdd-finish`
 
@@ -256,7 +263,7 @@ detached HEAD では 1 を出さない（2 / 3 / 4）。
 - ADR ゲート不足: ADR を書かない。
 - execute のホスト不能: `HOST_SUBAGENT_UNAVAILABLE`。コントローラで実装しない。
 - execute 開始時、実装する checkout の未コミット変更（`.gitignore` 追記コミットの後）: 止まる。
-- レビューの plan 矛盾: 人間に一度聞く。
+- execute の Task が再開 1 回でも完了しない: 止まる。
 - stacked PR の入力不足: 作らない。非ゼロ。
 - stacked PR の途中失敗: 部分成功を報告。履歴を書き換えない。
 
@@ -284,7 +291,7 @@ detached HEAD では 1 を出さない（2 / 3 / 4）。
 v1 が成功するのは次がすべて真のとき。
 
 - architectural な変更で、問い詰め中に `CONTEXT.md` が語ごとに更新され、HTML が隣にあり、ADR は 3 条件を満たすものだけである。
-- spec と plan が Markdown + HTML で残り、execute が Task ごとに brief / report / レジャーを残す。
+- spec と plan が Markdown + HTML で残り、execute が Task ごとに brief / 短い report / レジャーを残し、レビューゲートなしで次 Task へ進む。
 - finish で 4 を選ぶと、Task 数と同じ stacked PR がレジャーのコミット範囲から作られる。
 - Cursor と Claude Code で同じ `skills/` が使える。
 - 実行時に Superpowers も grill-with-docs も必須ではない。

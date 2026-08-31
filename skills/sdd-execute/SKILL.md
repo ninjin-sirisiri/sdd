@@ -1,13 +1,13 @@
 ---
 name: sdd-execute
-description: Execute an SDD plan with one isolated implementer per task, a spec+quality review, and a progress ledger. Use when a plan file exists and the user wants it implemented.
+description: Execute an SDD plan by dispatching one isolated subagent per task. When the controller judges that task complete, move to the next. Use when a plan file exists and the user wants it implemented.
 ---
 
 # SDD Execute
 
 Announce: "I'm using sdd-execute."
 
-Do not invoke Superpowers subagent-driven-development. Do not pin a model name. Per-task review uses this skill's prompts and `scripts/review-package`, not requesting-code-review. Do not use dispatching-parallel-agents for plan implementers.
+Do not invoke Superpowers subagent-driven-development. Do not pin a model name. Do not use dispatching-parallel-agents for plan implementers. Do not dispatch a task-reviewer, a final-reviewer, or requesting-code-review as a gate. Review is optional and only when the human asks.
 
 ## Preconditions
 
@@ -55,26 +55,27 @@ Before the first Task (and again when resuming after compaction):
 1. If `.sdd/progress.md` already has a `Branch baseline: <sha>` line, use that SHA. Do not replace it.
 2. Otherwise resolve `git rev-parse HEAD` to a full SHA and append `Branch baseline: <full-sha>` to `.sdd/progress.md` (create the file if needed).
 
-That SHA is the final-review base. Never pass the literal string `MERGE_BASE`.
+That SHA is the branch start for stacked PRs. Never pass the literal string `MERGE_BASE`.
 
 ## Loop
 
-Serial tasks only. Never dispatch two implementers at once.
+Serial tasks only. Never dispatch two implementers at once. Do not wait for the human between tasks. Do not ask "continue to the next task?".
 
 For each Task N not already `complete` in `.sdd/progress.md`:
 
 1. Record current HEAD as BASE (full SHA).
 2. `python3 <pack-root>/scripts/task-brief PLAN_FILE N`
-3. Dispatch implementer using implementer-prompt.md. Fill `[BRIEF_FILE]`, `[REPORT_FILE]` (`.sdd/reports/task-N-report.md`), `[N]`, `[TASK_NAME]`, `[WORKDIR]`, `[CONTEXT]` (where this task fits + interfaces from earlier tasks + your resolution of brief ambiguity). Do not paste the plan. Do not paste diffs.
-4. If the implementer asks questions, answer and resume the same contract.
-5. `DONE_WITH_CONCERNS` about correctness or scope: resolve before review. Observations: ledger them and review.
-6. `DONE` or observational concerns: `python3 <pack-root>/scripts/review-package BASE HEAD -o .sdd/reviews/task-N.diff.md` (overwrite on re-review).
-7. Dispatch task-reviewer-prompt.md with brief, report, diff path, and Global Constraints copied verbatim from the plan.
-8. Critical/Important: dispatch a fix implementer (same prompt contract, covering tests named), then re-review with the same reviewer template.
-9. A finding that contradicts plan text: do not fix; show the human the finding and the plan sentence once.
-10. On spec ✅ and quality Approved, append to `.sdd/progress.md`:
-    `Task N: complete (commits <base7>..<head7>, review clean)`
-    head7 is HEAD after fixes. base7 is the BASE you recorded.
+3. Dispatch one implementer using implementer-prompt.md. Fill `[BRIEF_FILE]`, `[REPORT_FILE]` (`.sdd/reports/task-N-report.md`), `[N]`, `[TASK_NAME]`, `[WORKDIR]`, `[GLOBAL_CONSTRAINTS]` (verbatim from the plan), `[CONTEXT]` (where this task fits + interfaces from earlier tasks + your resolution of brief ambiguity). Do not paste the plan. Do not paste diffs.
+4. If the implementer returns `BLOCKED` or `NEEDS_CONTEXT`, add context, split the task, or fix the plan, then re-dispatch. Never retry the identical prompt.
+5. Judge completeness yourself. Do not dispatch a reviewer. Task N is complete when all of:
+   - Status is `DONE` (notes/concerns are fine; they are not a gate)
+   - The brief's named deliverables exist
+   - Tests the brief named were run this task and passed (trust the report, or run that command once)
+   - `HEAD` moved from BASE, unless the brief had no code to commit
+6. If it is not complete: resume the same contract once, naming what is missing. If it is still not complete, stop and tell the human. Do not open a review loop.
+7. On complete, append to `.sdd/progress.md`:
+   `Task N: complete (commits <base7>..<head7>)`
+   head7 is HEAD. base7 is the BASE you recorded. Then start Task N+1 immediately.
 
 ## Controller stops
 
@@ -82,16 +83,10 @@ Only for destructive ops, security, side effects outside this worktree (push, me
 
 After compaction, trust the ledger and `git log`. Do not re-dispatch completed tasks. `git clean -fdx` deletes the ledger; recover from `git log`.
 
-`NEEDS_CONTEXT` / `BLOCKED`: add context, split the task, or fix the plan. Never retry the identical prompt.
-
 ## Close
 
-After every task is complete, run:
+After every task is complete, use sdd-finish. Do not run a final-reviewer subagent. If the human asks for a review, use requesting-code-review.
 
-```text
-python3 <pack-root>/scripts/review-package BRANCH_BASELINE HEAD -o .sdd/reviews/final.diff.md
-```
-
-`BRANCH_BASELINE` is the `Branch baseline:` SHA recorded above. Then dispatch final-reviewer-prompt.md once, including deferred Minors. If findings remain, one fix subagent for the whole list, then re-run final review. Then use sdd-finish.
+If sdd-goal (or the host `/goal` / CreateGoal) is already active, keep working this loop until that condition holds. Do not yield just to report progress.
 
 `<pack-root>` is the directory containing `skills/` and `scripts/` — the same definition as the `sdd` skill.

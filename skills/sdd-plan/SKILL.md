@@ -31,7 +31,7 @@ Then file structure, then tasks.
 
 ## Tasks
 
-Each task is the smallest unit with its own test cycle and review gate. Fold scaffolding into the task that needs it. Heading format is exactly:
+Each task is the smallest unit a subagent can finish and the controller can mark complete. Fold scaffolding into the task that needs it. Heading format is exactly:
 
 ```markdown
 ## Task N: <title>

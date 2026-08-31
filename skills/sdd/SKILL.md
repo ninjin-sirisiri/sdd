@@ -1,6 +1,6 @@
 ---
 name: sdd
-description: Route spec-driven work to sdd-design, sdd-plan, sdd-execute, or sdd-finish, and supporting Superpowers skills (TDD, debugging, verification). Use when the user wants SDD, a spec, a plan, implementation, a branch finish, TDD, or systematic debugging.
+description: Route spec-driven work to sdd-design, sdd-plan, sdd-execute, sdd-goal, or sdd-finish, and supporting Superpowers skills (TDD, debugging, verification). Use when the user wants SDD, a spec, a plan, implementation, a completion-condition loop, a branch finish, TDD, or systematic debugging.
 ---
 
 # SDD
@@ -16,13 +16,14 @@ Format templates live at `<pack-root>/docs/formats/`. Scripts live at `<pack-roo
 | New idea, fuzzy words, or any architectural change without a spec | sdd-design |
 | Approved architectural spec, no plan yet | sdd-plan |
 | Plan exists, implement it | sdd-execute |
+| Keep working until a condition holds (/goal) | sdd-goal |
 | Implementation green, integrate | sdd-finish |
 | User asks to "just implement" something architectural | sdd-design first |
 | Bounded feature, bugfix, or refactor (no architectural spec) | test-driven-development |
 | Bug, test failure, or unexpected behavior | systematic-debugging |
-| About to claim complete, fixed, or passing | verification-before-completion |
+| About to claim the branch is complete (sdd-finish) | verification-before-completion |
 | Isolated workspace / git worktree (after the human said yes) | using-git-worktrees |
-| Review outside sdd-execute | requesting-code-review |
+| Review the human asked for | requesting-code-review |
 | Acting on review feedback | receiving-code-review |
 | 2+ independent investigations (not plan tasks) | dispatching-parallel-agents |
 
