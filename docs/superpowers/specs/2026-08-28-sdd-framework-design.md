@@ -247,7 +247,7 @@ detached HEAD では 1 を出さない（2 / 3 / 4）。
 
 **`review-package`** — `review-package BASE HEAD -o PATH`。`-o` は必須。`BASE` が `HEAD` の祖先でなければ非ゼロ。ログ、stat、`-U10` diff をそのファイルに書く。git 出力は UTF-8 として decode し、不正バイトは置換する。`HEAD~1` を使わない。パスを stdout に出す。
 
-**`stack-prs`** — `stack-prs --base BRANCH --ledger PATH --plan PATH [--dry-run]`。副作用の前に plan と ledger の Task 集合・順序、base/head の commit 解決、祖先関係、隣接範囲の連続性、既存 `sdd-stack/task-N` ref を検証する。失敗時は branch 更新・push・`gh` をしない。`--dry-run` では検証だけ行い、branch 作成・push・`gh` をしない。`--help` は終了コード 0。本番はレジャー順に `sdd-stack/task-N` を各 Task の head に置き、PR を積む。既存 ref は欠落か同一 SHA のときだけ更新し、`update-ref` に expected-old-value を付ける。PR 本文に plan の当該 `## Task N:` 見出しと plan 先頭の Goal を載せる。
+**`stack-prs`** — `stack-prs --base BRANCH --ledger PATH --plan PATH [--dry-run]`。副作用の前に plan と ledger の Task 集合・順序、base/head の commit 解決、祖先関係、隣接範囲の連続性、既存 `sdd-stack/task-N` ref を検証する。失敗時は branch 更新・push・`gh` をしない。`--dry-run` では検証だけ行い、branch 作成・push・`gh` をしない。`--help` は終了コード 0。本番はレジャー順に `sdd-stack/task-N` を各 Task の head に置き、PR を積む。既存 ref は欠落か同一 SHA のときだけ更新し、`update-ref` に expected-old-value を付ける。PR 本文に plan の当該 `## Task N:` 見出しと plan 先頭の Goal を載せる。PR が 2 本以上なら、作った PR 番号を下から順に `POST /repos/{owner}/{repo}/stacks`（`gh api`）へ渡し、GitHub 上の stack にする。stack 作成に失敗したら作れた PR URL を報告し、履歴は書き換えない。
 
 ## Error handling
 

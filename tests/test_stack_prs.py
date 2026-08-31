@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import subprocess
 import sys
 
@@ -7,7 +8,7 @@ import pytest
 from gitutil import git, init_repo
 from sddlib.ledger import extract_goal, extract_task_heading, parse_ledger
 from sddlib.stack import _default_update_ref, _zero_oid, main as stack_main
-from sddlib.stack import run_stack
+from sddlib.stack import parse_pull_request_url, run_stack
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 STACK = SCRIPTS / "stack-prs"
@@ -186,10 +187,6 @@ def test_real_mode_points_branches(tmp_path: Path) -> None:
     def push(branch: str) -> None:
         pushes.append(branch)
 
-    def gh(args: list[str]) -> str:
-        gh_calls.append(args)
-        return "https://example.test/pr/" + str(len(gh_calls))
-
     code = run_stack(
         cwd=tmp_path,
         base_branch="main",
@@ -198,7 +195,7 @@ def test_real_mode_points_branches(tmp_path: Path) -> None:
         dry_run=False,
         update_ref=update_ref,
         push=push,
-        gh=gh,
+        gh=_recording_gh(gh_calls),
     )
     items = parse_ledger(ledger.read_text(encoding="utf-8"))
     head1 = git(tmp_path, "rev-parse", "--verify", items[0].head).strip()
@@ -206,10 +203,11 @@ def test_real_mode_points_branches(tmp_path: Path) -> None:
     assert code == 0
     assert refs == [("sdd-stack/task-1", head1), ("sdd-stack/task-2", head2)]
     assert pushes == ["sdd-stack/task-1", "sdd-stack/task-2"]
+    creates = [c for c in gh_calls if c and c[0] == "pr"]
     bases = []
     titles = []
     bodies = []
-    for args in gh_calls:
+    for args in creates:
         bases.append(args[args.index("--base") + 1])
         titles.append(args[args.index("--title") + 1])
         bodies.append(args[args.index("--body") + 1])
@@ -218,6 +216,143 @@ def test_real_mode_points_branches(tmp_path: Path) -> None:
     assert "Second thing" in titles[1]
     assert "Build the example" in bodies[0]
     assert "Build the example" in bodies[1]
+
+
+def _recording_gh(gh_calls: list[list[str]], payloads: list[str] | None = None):
+    def gh(args: list[str]) -> str:
+        gh_calls.append(list(args))
+        if args[:3] == ["api", "--method", "POST"]:
+            payload_path = Path(args[args.index("--input") + 1])
+            if payloads is not None:
+                payloads.append(payload_path.read_text(encoding="utf-8"))
+            return '{"number":9,"url":"https://github.com/acme/demo/stacks/9"}'
+        creates = [c for c in gh_calls if c and c[0] == "pr"]
+        return f"https://github.com/acme/demo/pull/{len(creates)}"
+
+    return gh
+
+
+def test_parse_pull_request_url() -> None:
+    assert parse_pull_request_url("https://github.com/acme/demo/pull/12") == (
+        "acme",
+        "demo",
+        12,
+    )
+    assert parse_pull_request_url("https://github.com/acme/demo/pull/12/files") == (
+        "acme",
+        "demo",
+        12,
+    )
+    assert parse_pull_request_url("https://example.test/pr/1") is None
+
+
+def test_real_mode_creates_github_stack(tmp_path: Path) -> None:
+    ledger, plan = _two_task_repo(tmp_path)
+    gh_calls: list[list[str]] = []
+    payloads: list[str] = []
+    code = run_stack(
+        cwd=tmp_path,
+        base_branch="main",
+        ledger_path=ledger,
+        plan_path=plan,
+        dry_run=False,
+        update_ref=lambda branch, sha: None,
+        push=lambda branch: None,
+        gh=_recording_gh(gh_calls, payloads),
+    )
+    assert code == 0
+    api_calls = [c for c in gh_calls if c[:3] == ["api", "--method", "POST"]]
+    assert len(api_calls) == 1
+    assert api_calls[0][3:7] == [
+        "-H",
+        "X-GitHub-Api-Version: 2026-03-10",
+        "repos/acme/demo/stacks",
+        "--input",
+    ]
+    assert json.loads(payloads[0]) == {"pull_requests": [1, 2]}
+
+
+def test_single_task_skips_github_stack(tmp_path: Path) -> None:
+    ledger, plan = _two_task_repo(tmp_path)
+    lines = ledger.read_text(encoding="utf-8").splitlines(keepends=True)
+    plan.write_text(
+        "# Example Implementation Plan\n\n**Goal:** Build the example.\n\n"
+        "## Task 1: First thing\n\nFirst body UNIQUE_TASK_ONE.\n"
+    )
+    ledger.write_text(lines[0])
+    gh_calls: list[list[str]] = []
+    code = run_stack(
+        cwd=tmp_path,
+        base_branch="main",
+        ledger_path=ledger,
+        plan_path=plan,
+        dry_run=False,
+        update_ref=lambda branch, sha: None,
+        push=lambda branch: None,
+        gh=_recording_gh(gh_calls),
+    )
+    assert code == 0
+    assert [c[0] for c in gh_calls] == ["pr"]
+
+
+def test_stack_api_failure_reports_created_urls(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    ledger, plan = _two_task_repo(tmp_path)
+    gh_calls: list[list[str]] = []
+
+    def gh(args: list[str]) -> str:
+        gh_calls.append(args)
+        if args[:3] == ["api", "--method", "POST"]:
+            raise RuntimeError("stacks unavailable")
+        creates = [c for c in gh_calls if c and c[0] == "pr"]
+        return f"https://github.com/acme/demo/pull/{len(creates)}"
+
+    code = run_stack(
+        cwd=tmp_path,
+        base_branch="main",
+        ledger_path=ledger,
+        plan_path=plan,
+        dry_run=False,
+        update_ref=lambda branch, sha: None,
+        push=lambda branch: None,
+        gh=gh,
+    )
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "failed at stack" in err
+    assert "https://github.com/acme/demo/pull/1" in err
+    assert "https://github.com/acme/demo/pull/2" in err
+    assert "remaining: stack" in err
+
+
+def test_invalid_stack_response_is_failure(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    ledger, plan = _two_task_repo(tmp_path)
+    gh_calls: list[list[str]] = []
+
+    def gh(args: list[str]) -> str:
+        gh_calls.append(args)
+        if args[:3] == ["api", "--method", "POST"]:
+            return "not-json"
+        creates = [c for c in gh_calls if c and c[0] == "pr"]
+        return f"https://github.com/acme/demo/pull/{len(creates)}"
+
+    code = run_stack(
+        cwd=tmp_path,
+        base_branch="main",
+        ledger_path=ledger,
+        plan_path=plan,
+        dry_run=False,
+        update_ref=lambda branch, sha: None,
+        push=lambda branch: None,
+        gh=gh,
+    )
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "failed at stack" in err
+    assert "remaining: stack" in err
 
 
 def _boom(name: str, called: list[str]):
@@ -439,10 +574,6 @@ def test_idempotent_when_refs_already_at_heads(tmp_path: Path) -> None:
     def push(branch: str) -> None:
         pushes.append(branch)
 
-    def gh(args: list[str]) -> str:
-        gh_calls.append(args)
-        return "https://example.test/pr/" + str(len(gh_calls))
-
     code = run_stack(
         cwd=tmp_path,
         base_branch="main",
@@ -450,12 +581,12 @@ def test_idempotent_when_refs_already_at_heads(tmp_path: Path) -> None:
         plan_path=plan,
         dry_run=False,
         push=push,
-        gh=gh,
+        gh=_recording_gh(gh_calls),
     )
     assert code == 0
     assert git(tmp_path, "rev-parse", "refs/heads/sdd-stack/task-1").strip() == head1
     assert git(tmp_path, "rev-parse", "refs/heads/sdd-stack/task-2").strip() == head2
-    assert len(gh_calls) == 2
+    assert len([c for c in gh_calls if c and c[0] == "pr"]) == 2
 
 
 def test_real_mode_writes_refs_at_full_sha(tmp_path: Path) -> None:
@@ -469,10 +600,6 @@ def test_real_mode_writes_refs_at_full_sha(tmp_path: Path) -> None:
     def push(branch: str) -> None:
         pushes.append(branch)
 
-    def gh(args: list[str]) -> str:
-        gh_calls.append(args)
-        return "https://example.test/pr/" + str(len(gh_calls))
-
     code = run_stack(
         cwd=tmp_path,
         base_branch="main",
@@ -480,13 +607,13 @@ def test_real_mode_writes_refs_at_full_sha(tmp_path: Path) -> None:
         plan_path=plan,
         dry_run=False,
         push=push,
-        gh=gh,
+        gh=_recording_gh(gh_calls),
     )
     assert code == 0
     assert git(tmp_path, "rev-parse", "refs/heads/sdd-stack/task-1").strip() == head1
     assert git(tmp_path, "rev-parse", "refs/heads/sdd-stack/task-2").strip() == head2
     assert pushes == ["sdd-stack/task-1", "sdd-stack/task-2"]
-    assert len(gh_calls) == 2
+    assert len([c for c in gh_calls if c and c[0] == "pr"]) == 2
 
 
 def test_help_exits_zero() -> None:

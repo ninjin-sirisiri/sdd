@@ -2,9 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 import argparse
+import json
+import os
 import subprocess
 import sys
+import tempfile
 
 from sddlib.cli import system_exit_code
 from sddlib.ledger import TaskComplete, extract_goal, extract_task_heading, parse_ledger
@@ -195,7 +199,71 @@ def run_stack(
             print("created: " + ", ".join(created), file=sys.stderr)
             print("remaining: " + ", ".join(str(n) for n in remaining), file=sys.stderr)
             return 1
+    if dry_run or len(created) < 2:
+        return 0
+    linker = gh or (_default_gh(cwd))
+    try:
+        stack_url = _create_github_stack(linker, created)
+    except Exception as exc:  # noqa: BLE001
+        print(f"failed at stack: {exc}", file=sys.stderr)
+        print("created: " + ", ".join(created), file=sys.stderr)
+        print("remaining: stack", file=sys.stderr)
+        return 1
+    if stack_url:
+        print(stack_url)
     return 0
+
+
+def parse_pull_request_url(url: str) -> tuple[str, str, int] | None:
+    parts = urlparse(url.strip()).path.strip("/").split("/")
+    if len(parts) < 4 or parts[2] != "pull":
+        return None
+    try:
+        return parts[0], parts[1], int(parts[3])
+    except ValueError:
+        return None
+
+
+def _create_github_stack(gh, urls: list[str]) -> str:
+    parsed: list[tuple[str, str, int]] = []
+    for url in urls:
+        item = parse_pull_request_url(url)
+        if item is None:
+            raise ValueError(f"cannot parse PR URL: {url}")
+        parsed.append(item)
+    repos = {(owner, repo) for owner, repo, _ in parsed}
+    if len(repos) != 1:
+        raise ValueError("PR URLs are not in the same repository")
+    (owner, repo), = repos
+    payload = json.dumps({"pull_requests": [number for _, _, number in parsed]})
+    fd, path = tempfile.mkstemp(suffix=".json", text=True)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(payload)
+        raw = gh(
+            [
+                "api",
+                "--method",
+                "POST",
+                "-H",
+                "X-GitHub-Api-Version: 2026-03-10",
+                f"repos/{owner}/{repo}/stacks",
+                "--input",
+                path,
+            ]
+        )
+    finally:
+        Path(path).unlink(missing_ok=True)
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError("stack response is not JSON") from exc
+    if not isinstance(data, dict):
+        raise ValueError("stack response is not an object")
+    url = data.get("url")
+    if not isinstance(url, str) or not url.strip():
+        raise ValueError("stack response missing url")
+    return url.strip()
 
 
 def _default_update_ref(cwd: Path, expected_olds: dict[str, str]):
