@@ -44,7 +44,7 @@ This pack vendors Superpowers 6.3.0 skills used during implementation. You do no
 | test-driven-development | Bounded features, bugfixes, and implementer TDD |
 | systematic-debugging | Bugs, test failures, unexpected behavior |
 | verification-before-completion | Before claiming complete, fixed, or passing |
-| using-git-worktrees | Optional isolation (sdd-execute does not require it) |
+| using-git-worktrees | Optional isolation (ask once before implementation; not required) |
 | requesting-code-review | Reviews outside sdd-execute |
 | receiving-code-review | Acting on review feedback |
 | dispatching-parallel-agents | Independent investigations (not plan implementers) |

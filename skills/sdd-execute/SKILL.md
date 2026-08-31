@@ -13,7 +13,6 @@ Do not invoke Superpowers subagent-driven-development. Do not pin a model name. 
 
 - Require a plan file path. If missing, stop.
 - If `.gitignore` has no `.sdd/` line, append it and commit only `.gitignore`.
-- If the worktree is still dirty after that commit, stop and ask the human to commit or stash.
 - Scan the plan once for contradictions or Global Constraints conflicts. Ask them in one batch. If none, say nothing.
 
 ## Host
@@ -21,6 +20,33 @@ Do not invoke Superpowers subagent-driven-development. Do not pin a model name. 
 - Cursor: Task tool, fresh subagent, no inherited chat.
 - Claude Code: Agent tool, fresh subagent, no inherited chat.
 - If the host cannot isolate a subagent, stop with `HOST_SUBAGENT_UNAVAILABLE`. Do not implement in this controller session.
+
+## Workspace
+
+Before the first Task, decide the checkout. Do not dispatch Task 1 until this is settled.
+
+1. If `.sdd/progress.md` already has a `Worktree:` line, honor it. Do not ask again (including after compaction).
+2. If already in a linked worktree (not a submodule), append `Worktree: existing <full-path>` if that line is missing, then continue here. Do not ask. Do not create another worktree.
+3. If this conversation already recorded a yes/no, honor it without asking.
+4. Otherwise stop and ask once. Present exactly:
+
+```
+Implementation is about to start. Create an isolated git worktree first?
+
+1. Yes — create a worktree (keeps this checkout unchanged)
+2. No — implement in this checkout
+
+Which option?
+```
+
+Wait for the human. Do not add extra options. Creating a worktree is optional.
+
+- **Yes:** use using-git-worktrees. They already consented — do not ask again inside that skill. After it reports ready, continue this skill from that worktree. Append `Worktree: created <full-path>` to `.sdd/progress.md` in the checkout you will implement in (create the file if needed). If creation fails and that skill falls back in place, append `Worktree: in-place` instead.
+- **No:** append `Worktree: in-place` and continue in this checkout.
+
+Do not use using-git-worktrees for Task implementer subagents. `[WORKDIR]` is this chosen checkout.
+
+If the checkout you will implement in is still dirty after the `.gitignore` commit, stop and ask the human to commit or stash. A new worktree from HEAD is clean even when the original checkout is dirty; do not block on dirt in the checkout you left behind.
 
 ## Branch baseline
 

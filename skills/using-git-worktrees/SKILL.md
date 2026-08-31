@@ -1,11 +1,11 @@
 ---
 name: using-git-worktrees
-description: Use when the human requests isolation from the current workspace, or before a long execute on a dirty main checkout. Do not use for sdd-execute Task implementers. sdd-execute does not require a new worktree.
+description: Use when the human requests isolation, or when sdd-execute's workspace prompt (or bounded TDD's equivalent) was answered yes. Do not use for sdd-execute Task implementers. Never create a worktree during sdd-execute unless the human already said yes.
 ---
 
 # Using Git Worktrees
 
-sdd-execute does not require a new worktree. Use this skill when the human wants isolation, or before a long execute on a dirty main checkout.
+sdd-execute asks once before Task 1 whether to create a worktree. It is optional. Use this skill after they said yes, or when they independently request isolation. Do not use it for sdd-execute Task implementers.
 
 ## Overview
 

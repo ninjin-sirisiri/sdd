@@ -45,6 +45,6 @@ If the command exits non-zero, report any PR URLs it printed and which tasks rem
 
 Option 4 is unavailable without a ledger. Do not invent task boundaries from `git log` guesswork.
 
-worktree cleanup is out of scope unless this checkout is a git worktree you created in this session — v1 does not require creating worktrees.
+worktree cleanup is out of scope unless this checkout is a git worktree you created in this session (including after the sdd-execute workspace prompt). Creating a worktree is optional.
 
 `<pack-root>` is the directory that contains `skills/` and `scripts/` — the same definition as the `sdd` skill.

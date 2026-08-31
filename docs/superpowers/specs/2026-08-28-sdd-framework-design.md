@@ -108,7 +108,7 @@ sdd-design → sdd-plan → sdd-execute → sdd-finish
 - `briefs/task-N-brief.md`
 - `reports/task-N-report.md`
 - `reviews/task-N.diff.md`（review-package の出力）
-- `progress.md`（先頭に `Branch baseline: <full-sha>`、各 Task の complete 行）
+- `progress.md`（`Worktree: created <path>` / `in-place` / `existing <path>`、`Branch baseline: <full-sha>`、各 Task の complete 行）
 
 正本は git のコミットと `CONTEXT.md` / ADR / spec / plan。レジャーは復旧用スクラッチで、コミットしない。
 
@@ -116,7 +116,7 @@ v1 はルートの `CONTEXT.md` のみ。`CONTEXT-MAP.md` がある場合は、�
 
 ## `sdd`（入口）
 
-いつどのスキルを使うかを決める。ユーザーが実装だけを頼んでも、architectural 相当なら `sdd-design` から始める。plan がある状態で「実行して」なら `sdd-execute`。実装が終わりテストが緑なら `sdd-finish`。バグやテスト失敗は `systematic-debugging`。bounded 実装は `test-driven-development`。完了宣言の前は `verification-before-completion`。
+いつどのスキルを使うかを決める。ユーザーが実装だけを頼んでも、architectural 相当なら `sdd-design` から始める。plan がある状態で「実行して」なら `sdd-execute`。コントローラが実装を始める直前（execute の Task 1、または execute の implementer ではない TDD）に、隔離 worktree を作るかを一度聞く。実装が終わりテストが緑なら `sdd-finish`。バグやテスト失敗は `systematic-debugging`。bounded 実装は `test-driven-development`。完了宣言の前は `verification-before-completion`。
 
 ## `sdd-design`
 
@@ -166,7 +166,7 @@ _Avoid_: {使わない同義語}
 
 **spike:** 2〜3 文でプローブを出し、頷きを得てから安く調べ、推奨を返す。残すコードは throwaway と明記する。spec / plan は作らない。問い詰め中に用語や ADR ゲートを満たした決定があれば、通常どおりディスクへ書く。
 
-**bounded:** 短い設計をチャットに出し、明示の yes まで実装しない。yes のあと、同じセッションで `test-driven-development` する。spec ファイルも plan も作らない。
+**bounded:** 短い設計をチャットに出し、明示の yes まで実装しない。yes のあと、隔離 worktree を作るかを一度だけ聞く（execute と同じ文言。必須ではない）。既に linked worktree にいるか、会話で希望が済んでいれば聞かない。作るなら `using-git-worktrees` のあと、同じセッションで `test-driven-development` する。spec ファイルも plan も作らない。
 
 **architectural:** アプローチを 2〜3 出し、推奨を先に述べる。デザインはセクションごとに出し、各セクションの承認を待つ。全セクション承認後に spec Markdown と HTML を書き、プレースホルダ・矛盾・曖昧さ・範囲を自己レビューして直す。spec と、このセッションで更新した `CONTEXT.md` / ADR / 対応 HTML をまとめてコミットする。ユーザーに spec ファイルのレビューを求める。変更があれば新しいコミットにする（amend しない）。承認後に `sdd-plan` へ渡す。writing-plans スキルは呼ばない。
 
@@ -192,7 +192,7 @@ plan 先頭は次のヘッダを必須とする:
 
 ホスト: Cursor は Task ツールで新規サブエージェントを出す。Claude Code は Agent ツールで出す。モデル名はフレームワークが固定しない。ホストが隔離サブエージェントを出せないときは `HOST_SUBAGENT_UNAVAILABLE` で止まり、コントローラセッションで実装しない。
 
-`.gitignore` に `.sdd/` が無ければ追記し、そのファイルだけを先にコミットする。その後に未コミットの変更があれば止まり、コミットか退避を人間に確認する。Task 1 の前に plan を一度スキャンし、矛盾や Global Constraints 違反になりうる指定があれば、発見をまとめて一度だけ人間に聞く。問題が無ければ黙って Task 1 に入る。
+`.gitignore` に `.sdd/` が無ければ追記し、そのファイルだけを先にコミットする。Task 1 の前に plan を一度スキャンし、矛盾や Global Constraints 違反になりうる指定があれば、発見をまとめて一度だけ人間に聞く。問題が無ければ、隔離 worktree を作るかを一度だけ聞く（必須ではない）。既に linked worktree にいる、会話で希望が済んでいる、またはレジャーに `Worktree:` がある場合は聞かない。作るなら `using-git-worktrees` を使い、その worktree で execute を続ける。拒否なら現在の checkout で進む。同意は execute 側で取るので、worktree スキルで二度聞かない。答えは `.sdd/progress.md` に残し、コンパクション後に聞き直さない。実装する checkout が（`.gitignore` 追記コミットの後も）汚れていれば止まり、コミットか退避を人間に確認する。元の checkout の汚れは、新しい worktree に移ったあとは止めない。
 
 `git clean -fdx` はレジャーを消す。消えたら `git log` から復旧し、完了済み Task を再実行しない。execute 開始時（または再開時）に `.sdd/progress.md` の `Branch baseline: <full-sha>` を読む。無ければ現在の `HEAD` のフル SHA を書いて、final review の base にする。
 
@@ -255,7 +255,7 @@ detached HEAD では 1 を出さない（2 / 3 / 4）。
 - glossary 衝突: 質問を進めず衝突を先に解消。
 - ADR ゲート不足: ADR を書かない。
 - execute のホスト不能: `HOST_SUBAGENT_UNAVAILABLE`。コントローラで実装しない。
-- execute 開始時の未コミット変更（`.gitignore` 追記コミットの後）: 止まる。
+- execute 開始時、実装する checkout の未コミット変更（`.gitignore` 追記コミットの後）: 止まる。
 - レビューの plan 矛盾: 人間に一度聞く。
 - stacked PR の入力不足: 作らない。非ゼロ。
 - stacked PR の途中失敗: 部分成功を報告。履歴を書き換えない。
