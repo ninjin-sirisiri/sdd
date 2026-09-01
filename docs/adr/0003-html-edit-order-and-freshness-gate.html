@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src &#x27;none&#x27;; img-src &#x27;self&#x27; data:; style-src &#x27;self&#x27;; base-uri &#x27;none&#x27;; form-action &#x27;none&#x27;; frame-ancestors &#x27;none&#x27;; script-src &#x27;none&#x27;; connect-src &#x27;none&#x27;">
+<meta name="sdd-source-digest" content="sha256:d224bee548d1bdbfcb7c17fa65f3201a515d5d229bbcba685e6022eec846c44b">
+<title>0003. Enforce Markdown-before-HTML freshness</title>
+<link rel="stylesheet" href="../sdd/assets/sdd.css">
+</head>
+<body data-document-kind="adr">
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="document-header">
+<p class="document-kind">ADR</p>
+</header>
+<main id="content" tabindex="-1">
+<h1 id="0003-enforce-markdown-before-html-freshness">0003. Enforce Markdown-before-HTML freshness</h1>
+<article class="decision-article">
+<p>Host hooks cannot guarantee the next tool call and external writes can bypass them, so combine host-native edit checks with a shared SHA-256 digest policy and Git pre-commit / CI freshness gates. Allow HTML edits only after the paired Markdown is newer than its recorded digest, reject stale or HTML-only changes at commit, and retain an explicit bootstrap path for legacy companions.</p>
+</article>
+</main>
+</body>
+</html>
