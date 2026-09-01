@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url"
+import { isAbsolute, relative, resolve } from "node:path"
 
 type JsonRecord = Record<string, unknown>
 
@@ -111,6 +112,20 @@ function request(paths: string[], ...values: JsonRecord[]): PolicyRequest {
   }
 }
 
+function targetSourcePaths(paths: string[]): string[] {
+  const root = resolve(process.cwd())
+  return [...new Set(paths.filter((path) => {
+    const candidate = resolve(isAbsolute(path) ? path : resolve(root, path))
+    const relativePath = relative(root, candidate).replaceAll("\\", "/")
+    const parts = relativePath.split("/")
+    return (
+      relativePath === "CONTEXT.md"
+      || (parts.length === 3 && parts[0] === "docs" && parts[1] === "adr" && parts[2].endsWith(".md") && !parts[2].startsWith("."))
+      || (parts.length === 4 && parts[0] === "docs" && parts[1] === "sdd" && (parts[2] === "specs" || parts[2] === "plans") && parts[3].endsWith(".md") && !parts[3].startsWith("."))
+    )
+  }))]
+}
+
 export function requestFromToolExecuteBefore(
   input: unknown,
   output: unknown,
@@ -128,7 +143,14 @@ export function requestFromToolExecuteBefore(
   if (FILE_TOOLS.has(input.tool) && paths.length === 0) {
     throw inputError(`${input.tool} has no file path`)
   }
-  return request(paths, input, output.args)
+  const policyRequest = request(paths, input, output.args)
+  if (input.tool !== "write") return policyRequest
+  const newSources = targetSourcePaths(paths)
+  if (!newSources.length) return policyRequest
+  return {
+    ...policyRequest,
+    new_source_paths: [...new Set([...(policyRequest.new_source_paths ?? []), ...newSources])],
+  }
 }
 
 export function requestFromFileEdited(payload: unknown): PolicyRequest {

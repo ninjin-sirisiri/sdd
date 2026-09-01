@@ -13,7 +13,11 @@ test("maps an OpenCode write payload to an allowable policy request", () => {
       { tool: "write", sessionID: "session", callID: "call" },
       { args: { path: "CONTEXT.md", content: "changed" } },
     ),
-  ).toEqual({ operation: "edit", paths: ["CONTEXT.md"] })
+  ).toEqual({
+    operation: "edit",
+    paths: ["CONTEXT.md"],
+    new_source_paths: ["CONTEXT.md"],
+  })
   expect(() => requirePolicyAllow({ decision: "allow", message: "allowed" })).not.toThrow()
 })
 

@@ -180,6 +180,17 @@ def test_multiple_source_edits_use_final_digest_and_stale_again_after_source_edi
     assert check_edit(tmp_path, ["CONTEXT.html"])["decision"] == "allow"
 
 
+def test_new_source_creation_is_allowed_when_explicitly_marked(tmp_path: Path) -> None:
+    result = check_edit(
+        tmp_path,
+        ["CONTEXT.md"],
+        new_source_paths=["CONTEXT.md"],
+    )
+
+    assert result["decision"] == "allow"
+    assert result["expected_digests"] == {}
+
+
 def test_new_source_and_explicit_bootstrap_allow_missing_companions(tmp_path: Path) -> None:
     _write_source(tmp_path, content=b"# New\n")
     new_source = check_edit(

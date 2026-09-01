@@ -396,6 +396,12 @@ def check_edit(
             continue
 
         if source_digest is None:
+            if roles == {"source"} and source_relative in new_sources:
+                messages.append(
+                    f"New Markdown source creation allowed for {source_relative}; "
+                    f"author {companion_relative} separately."
+                )
+                continue
             denied = True
             messages.append(
                 f"Cannot authorize {companion_relative}; current Markdown source "

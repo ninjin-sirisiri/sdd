@@ -98,6 +98,39 @@ def test_stdin_fixtures_preserve_bootstrap_permissions(
     assert decision == "allow"
 
 
+def test_cursor_write_pretool_marks_new_target_source() -> None:
+    request = cursor.request_from_payload(
+        {
+            "hook_event_name": "preToolUse",
+            "tool_name": "Write",
+            "tool_input": {"file_path": "CONTEXT.md", "content": "# new\n"},
+        }
+    )
+
+    assert request == {
+        "operation": "edit",
+        "paths": ["CONTEXT.md"],
+        "new_source_paths": ["CONTEXT.md"],
+    }
+
+
+def test_claude_write_pretool_marks_new_target_source() -> None:
+    event, request = claude.request_from_payload(
+        {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Write",
+            "tool_input": {"file_path": "CONTEXT.md", "content": "# new\n"},
+        }
+    )
+
+    assert event == "PreToolUse"
+    assert request == {
+        "operation": "edit",
+        "paths": ["CONTEXT.md"],
+        "new_source_paths": ["CONTEXT.md"],
+    }
+
+
 def test_cursor_multiedit_maps_a_mixed_pair_to_policy_denial(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     result = run_hook(

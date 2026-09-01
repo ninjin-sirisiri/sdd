@@ -19,6 +19,37 @@ class PolicyExecutionError(RuntimeError):
     """The common policy CLI could not return a valid result."""
 
 
+def target_source_paths(paths: list[str]) -> list[str]:
+    """Select Target Markdown paths for a pre-edit Write operation."""
+
+    root = Path.cwd().resolve()
+    selected: list[str] = []
+    for raw_path in paths:
+        try:
+            relative = Path(raw_path).resolve(strict=False).relative_to(root)
+        except (OSError, RuntimeError, ValueError):
+            continue
+        if relative == Path("CONTEXT.md"):
+            selected.append(raw_path)
+        elif (
+            len(relative.parts) == 3
+            and relative.parts[0] == "docs"
+            and relative.parts[1] == "adr"
+            and relative.name.endswith(".md")
+            and not relative.name.startswith(".")
+        ):
+            selected.append(raw_path)
+        elif (
+            len(relative.parts) == 4
+            and relative.parts[:2] == ("docs", "sdd")
+            and relative.parts[2] in {"specs", "plans"}
+            and relative.name.endswith(".md")
+            and not relative.name.startswith(".")
+        ):
+            selected.append(raw_path)
+    return list(dict.fromkeys(selected))
+
+
 def invoke_policy(request: dict[str, Any]) -> dict[str, Any]:
     """Invoke the shared policy CLI without involving a shell."""
 

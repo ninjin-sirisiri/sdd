@@ -8,7 +8,12 @@ from typing import Any
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from _policy import AdapterInputError, PolicyExecutionError, invoke_policy
+from _policy import (
+    AdapterInputError,
+    PolicyExecutionError,
+    invoke_policy,
+    target_source_paths,
+)
 
 
 EVENTS = {"PreToolUse", "PostToolUse"}
@@ -111,7 +116,14 @@ def request_from_payload(payload: Any) -> tuple[str, dict[str, Any] | None]:
     paths = _paths(tool_input)
     if not paths:
         return event, None
-    return event, {"operation": "edit", "paths": paths, **_options(payload, tool_input)}
+    options = _options(payload, tool_input)
+    if tool == "Write":
+        new_sources = target_source_paths(paths)
+        if new_sources:
+            options["new_source_paths"] = list(
+                dict.fromkeys([*options.get("new_source_paths", []), *new_sources])
+            )
+    return event, {"operation": "edit", "paths": paths, **options}
 
 
 def _response(event: str, decision: str, reason: str) -> dict[str, Any]:
