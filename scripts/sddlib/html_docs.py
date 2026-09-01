@@ -14,6 +14,7 @@ from sddlib.html_policy import (
     check_freshness,
     check_registrations,
     resolve_target,
+    validate_html,
 )
 
 
@@ -249,6 +250,56 @@ def _check(root: Path, args: list[str]) -> tuple[dict[str, object], int]:
     return policy_result, 0 if policy_result["decision"] == "allow" else 1
 
 
+def _validate(root: Path, args: list[str]) -> tuple[dict[str, object], int]:
+    if not args or any(argument.startswith("-") for argument in args):
+        raise CLIInputError("validate requires explicit Target paths")
+
+    targets = {}
+    for path in args:
+        target = resolve_target(root, path)
+        if target is not None:
+            targets[target.source_relative] = target
+
+    if not targets:
+        return {
+            "decision": "allow",
+            "message": "No synchronized target documents are affected.",
+            "paths": [],
+            "expected_digests": {},
+            "violations": [],
+            "warnings": [],
+        }, 0
+
+    paths: list[str] = []
+    expected_digests: dict[str, str] = {}
+    violations: list[dict[str, str]] = []
+    warnings: list[dict[str, str]] = []
+    for target in targets.values():
+        result = validate_html(root, target.source_path, target.companion_path)
+        paths.extend(result["paths"])  # type: ignore[arg-type]
+        expected_digests.update(result["expected_digests"])  # type: ignore[arg-type]
+        violations.extend(result["violations"])  # type: ignore[arg-type]
+        warnings.extend(result["warnings"])  # type: ignore[arg-type]
+
+    unique_paths = list(dict.fromkeys(paths))
+    if violations:
+        message = "HTML validation failed: " + " ".join(
+            item["message"] for item in violations
+        )
+        decision = "deny"
+    else:
+        message = "All requested HTML companions are valid."
+        decision = "allow"
+    return {
+        "decision": decision,
+        "message": message,
+        "paths": unique_paths,
+        "expected_digests": expected_digests,
+        "violations": violations,
+        "warnings": warnings,
+    }, 0 if decision == "allow" else 1
+
+
 def _bootstrap(root: Path, args: list[str]) -> tuple[dict[str, object], int]:
     if not args or any(argument.startswith("-") for argument in args):
         raise CLIInputError("bootstrap requires explicit Target Markdown paths")
@@ -258,10 +309,16 @@ def _bootstrap(root: Path, args: list[str]) -> tuple[dict[str, object], int]:
 
 def main(argv: list[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
-    if not arguments or arguments[0] not in {"edit-check", "check", "bootstrap", "doctor"}:
+    if not arguments or arguments[0] not in {
+        "edit-check",
+        "check",
+        "validate",
+        "bootstrap",
+        "doctor",
+    }:
         return _write_result(
             _result_error(
-                "usage: html-docs {edit-check|check|bootstrap|doctor}"
+                "usage: html-docs {edit-check|check|validate|bootstrap|doctor}"
             ),
             2,
         )
@@ -275,6 +332,8 @@ def main(argv: list[str] | None = None) -> int:
             policy_result, code = _edit_check(root)
         elif command == "check":
             policy_result, code = _check(root, command_args)
+        elif command == "validate":
+            policy_result, code = _validate(root, command_args)
         elif command == "bootstrap":
             policy_result, code = _bootstrap(root, command_args)
         else:

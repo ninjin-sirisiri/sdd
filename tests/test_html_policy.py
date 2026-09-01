@@ -211,6 +211,17 @@ def test_multiple_source_edits_use_final_digest_and_stale_again_after_source_edi
     assert check_edit(tmp_path, ["CONTEXT.html"])["decision"] == "allow"
 
 
+def test_new_source_creation_is_allowed_when_explicitly_marked(tmp_path: Path) -> None:
+    result = check_edit(
+        tmp_path,
+        ["CONTEXT.md"],
+        new_source_paths=["CONTEXT.md"],
+    )
+
+    assert result["decision"] == "allow"
+    assert result["expected_digests"] == {}
+
+
 def test_new_source_and_explicit_bootstrap_allow_missing_companions(tmp_path: Path) -> None:
     _write_source(tmp_path, content=b"# New\n")
     new_source = check_edit(
@@ -470,6 +481,20 @@ def test_csp_additional_source_directives_are_rejected(tmp_path: Path) -> None:
 
     result = validate_html(tmp_path, source, companion)
     assert "csp" in _violation_codes(result)
+
+
+def test_csp_defensive_none_directives_are_allowed(tmp_path: Path) -> None:
+    source, companion = _copy_fixture(
+        tmp_path, "spec", "2026-01-01-example-design"
+    )
+    html = companion.read_text(encoding="utf-8").replace(
+        "frame-ancestors &#x27;none&#x27;",
+        "frame-ancestors &#x27;none&#x27;; script-src &#x27;none&#x27;; connect-src &#x27;none&#x27;",
+    )
+    companion.write_text(html, encoding="utf-8")
+
+    result = validate_html(tmp_path, source, companion)
+    assert result["decision"] == "allow", result
 
 
 def test_data_image_media_resources_are_allowed(tmp_path: Path) -> None:

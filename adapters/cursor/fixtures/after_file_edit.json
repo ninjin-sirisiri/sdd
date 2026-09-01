@@ -1,0 +1,4 @@
+{
+  "hook_event_name": "afterFileEdit",
+  "file_path": "CONTEXT.html"
+}

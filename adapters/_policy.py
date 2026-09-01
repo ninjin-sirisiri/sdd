@@ -1,0 +1,109 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import subprocess
+import sys
+from typing import Any
+
+
+PACK_ROOT = Path(__file__).resolve().parents[1]
+POLICY_TIMEOUT_SECONDS = 10
+
+
+class AdapterInputError(ValueError):
+    """A host payload cannot be translated to the policy contract."""
+
+
+class PolicyExecutionError(RuntimeError):
+    """The common policy CLI could not return a valid result."""
+
+
+def target_source_paths(paths: list[str]) -> list[str]:
+    """Select Target Markdown paths for a pre-edit Write operation."""
+
+    root = Path.cwd().resolve()
+    selected: list[str] = []
+    for raw_path in paths:
+        try:
+            relative = Path(raw_path).resolve(strict=False).relative_to(root)
+        except (OSError, RuntimeError, ValueError):
+            continue
+        if relative == Path("CONTEXT.md"):
+            selected.append(raw_path)
+        elif (
+            len(relative.parts) == 3
+            and relative.parts[0] == "docs"
+            and relative.parts[1] == "adr"
+            and relative.name.endswith(".md")
+            and not relative.name.startswith(".")
+        ):
+            selected.append(raw_path)
+        elif (
+            len(relative.parts) == 4
+            and relative.parts[:2] == ("docs", "sdd")
+            and relative.parts[2] in {"specs", "plans"}
+            and relative.name.endswith(".md")
+            and not relative.name.startswith(".")
+        ):
+            selected.append(raw_path)
+    return list(dict.fromkeys(selected))
+
+
+def _invoke_cli(
+    arguments: list[str],
+    input_text: str | None = None,
+) -> dict[str, Any]:
+    command = [sys.executable, str(PACK_ROOT / "scripts" / "html-docs"), *arguments]
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=Path.cwd(),
+            input=input_text,
+            text=True,
+            capture_output=True,
+            timeout=POLICY_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise PolicyExecutionError(
+            "the html-docs policy timed out; run html-docs doctor and check the adapter setup"
+        ) from exc
+    except OSError as exc:
+        raise PolicyExecutionError(
+            f"the html-docs policy could not be invoked: {exc}; "
+            "run html-docs doctor and check the adapter setup"
+        ) from exc
+
+    try:
+        result = json.loads(completed.stdout)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise PolicyExecutionError(
+            "the html-docs policy returned invalid JSON; "
+            "run html-docs doctor and check the adapter setup"
+        ) from exc
+    if not isinstance(result, dict) or result.get("decision") not in {"allow", "deny"}:
+        raise PolicyExecutionError(
+            "the html-docs policy returned an invalid decision; "
+            "run html-docs doctor and check the adapter setup"
+        )
+    if completed.returncode not in {0, 1}:
+        message = result.get("message")
+        detail = message if isinstance(message, str) and message else "execution failure"
+        raise PolicyExecutionError(
+            f"the html-docs policy failed: {detail}; "
+            "run html-docs doctor and check the adapter setup"
+        )
+    return result
+
+
+def invoke_policy(request: dict[str, Any]) -> dict[str, Any]:
+    """Invoke the shared edit policy CLI without involving a shell."""
+
+    return _invoke_cli(["edit-check"], json.dumps(request, ensure_ascii=False))
+
+
+def invoke_validation(paths: list[str]) -> dict[str, Any]:
+    """Validate current Target companions without treating the event as an edit."""
+
+    return _invoke_cli(["validate", *paths])

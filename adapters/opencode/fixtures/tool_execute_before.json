@@ -1,0 +1,9 @@
+{
+  "tool": "write",
+  "output": {
+    "args": {
+      "path": "CONTEXT.md",
+      "content": "# changed\n"
+    }
+  }
+}

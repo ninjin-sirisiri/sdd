@@ -165,6 +165,19 @@ def test_check_explicit_paths_validates_a_complete_pair(tmp_path: Path) -> None:
     assert checked["violations"] == []
 
 
+def test_validate_accepts_a_current_companion(tmp_path: Path) -> None:
+    init_repo(tmp_path)
+    _source, companion = copy_fixture(tmp_path, "glossary", "CONTEXT")
+
+    process = run_cli(tmp_path, "validate", companion.relative_to(tmp_path).as_posix())
+
+    assert process.returncode == 0
+    checked = result(process)
+    assert checked["decision"] == "allow"
+    assert checked["paths"] == ["CONTEXT.md", "CONTEXT.html"]
+    assert checked["violations"] == []
+
+
 def test_check_staged_rejects_markdown_only_change(tmp_path: Path) -> None:
     init_repo(tmp_path)
     source, _companion = copy_fixture(tmp_path, "glossary", "CONTEXT")

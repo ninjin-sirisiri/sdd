@@ -1,0 +1,5 @@
+{
+  "hook_event_name": "afterFileEdit",
+  "file_path": "CONTEXT.html",
+  "bootstrap_paths": ["CONTEXT.html"]
+}
