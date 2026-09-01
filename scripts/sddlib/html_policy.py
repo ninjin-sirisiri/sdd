@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
-from dataclasses import dataclass
+from collections.abc import Iterable, Iterator
+from dataclasses import dataclass, field
 from enum import StrEnum
 import hashlib
 from html.parser import HTMLParser
@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 from typing import TypeAlias
+from urllib.parse import unquote, urlsplit
 
 
 PathInput: TypeAlias = str | os.PathLike[str]
@@ -464,3 +465,993 @@ def check_edit(
 
 # The explicit alias reads naturally for callers that deal in source metadata.
 parse_source_digest = parse_digest_metadata
+
+
+_HTML_VOID_TAGS = {
+    "area",
+    "base",
+    "br",
+    "col",
+    "embed",
+    "hr",
+    "img",
+    "input",
+    "link",
+    "meta",
+    "param",
+    "source",
+    "track",
+    "wbr",
+}
+_FORBIDDEN_TAGS = {"script", "iframe", "frame", "object", "embed", "style"}
+_MEDIA_TAGS = {"img", "audio", "video", "source", "track"}
+_OUTLINE_TAGS = {"aside", "nav"}
+_OUTLINE_EXCLUDED_TAGS = {"aside", "caption", "details", "nav"}
+_SCOPE_VALUES = {"col", "colgroup", "row", "rowgroup"}
+_CSP_REQUIRED = {
+    "default-src": {"'none'"},
+    "img-src": {"'self'", "data:"},
+    "style-src": {"'self'"},
+    "base-uri": {"'none'"},
+    "form-action": {"'none'"},
+    "frame-ancestors": {"'none'"},
+}
+_MD_FENCE_OPEN_RE = re.compile(r"^( {0,3})(`{3,}|~{3,})(.*)$")
+_MD_FENCE_CLOSE_RE = re.compile(r"^( {0,3})(`{3,}|~{3,})[ \t]*$")
+_MD_HEADING_RE = re.compile(r"^ {0,3}(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$")
+_MD_TASK_RE = re.compile(r"^## Task (\d+):[ \t]*(.*)$")
+_MD_REFERENCE_RE = re.compile(r"^ {0,3}\[[^\]]+\]:\s+\S+")
+_MD_TABLE_SEPARATOR_RE = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$")
+_MD_LINK_RE = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")
+_MD_REFERENCE_LINK_RE = re.compile(r"!?\[([^\]]*)\]\[[^\]]*\]")
+_MD_AUTOLINK_RE = re.compile(r"<((?:https?://|mailto:)[^ >]+)>")
+_MD_REFERENCE_DEF_RE = re.compile(
+    r"^ {0,3}\[([^\]]+)\]:[ \t]+(?:<([^>\r\n]+)>|(\S+))"
+)
+_MD_LINK_SCAN_RE = re.compile(
+    r"(?<![!\\])\[[^\]]*\]\(\s*(?:<(?P<inline_angle>[^>\r\n]*)>"
+    r"|(?P<inline>[^)\s\r\n]+))"
+    r"|(?<![!\\])\[(?P<label>[^\]]+)\]\[(?P<reference>[^\]]*)\]"
+    r"|(?P<autolink><(?:https?://|mailto:)[^ >]+>)"
+    r"|(?<![!\\])\[(?P<shortcut>[^\]]+)\](?![\[(])"
+)
+_MD_TOKEN_RE = re.compile(
+    r"</?[A-Za-z][^>]*>|[\w]+(?:['’][\w]+)*", re.UNICODE
+)
+_LANGUAGE_WORDS = {
+    "en": {
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "because",
+        "for",
+        "from",
+        "in",
+        "is",
+        "of",
+        "on",
+        "or",
+        "the",
+        "this",
+        "to",
+        "was",
+        "with",
+    },
+    "fr": {
+        "au",
+        "avec",
+        "dans",
+        "de",
+        "des",
+        "du",
+        "et",
+        "la",
+        "le",
+        "les",
+        "pour",
+        "que",
+        "un",
+        "une",
+    },
+    "de": {
+        "als",
+        "auf",
+        "das",
+        "der",
+        "die",
+        "ein",
+        "eine",
+        "mit",
+        "und",
+        "von",
+        "zu",
+    },
+    "es": {
+        "con",
+        "de",
+        "el",
+        "en",
+        "la",
+        "las",
+        "los",
+        "para",
+        "por",
+        "que",
+        "una",
+        "un",
+        "y",
+    },
+    "it": {
+        "con",
+        "da",
+        "del",
+        "di",
+        "e",
+        "gli",
+        "il",
+        "la",
+        "le",
+        "per",
+        "una",
+        "un",
+    },
+}
+
+
+@dataclass
+class HTMLNode:
+    """One parsed HTML element and its ordered child/text content."""
+
+    tag: str
+    attrs: tuple[tuple[str, str | None], ...] = ()
+    parent: HTMLNode | None = None
+    children: list[HTMLNode] = field(default_factory=list)
+    text_nodes: list[str] = field(default_factory=list)
+    content: list[HTMLNode | str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class HTMLDocument:
+    """The standard-library parse result retained for validation and callers."""
+
+    root: HTMLNode
+    nodes: tuple[HTMLNode, ...]
+    errors: tuple[str, ...] = ()
+
+    @property
+    def headings(self) -> tuple[HTMLNode, ...]:
+        return tuple(node for node in self.nodes if node.tag in {f"h{i}" for i in range(1, 7)})
+
+    @property
+    def fragments(self) -> tuple[str, ...]:
+        return tuple(
+            value
+            for node in self.nodes
+            for name, value in node.attrs
+            if name == "id" and value
+        )
+
+    @property
+    def landmarks(self) -> tuple[HTMLNode, ...]:
+        return tuple(node for node in self.nodes if node.tag in {"header", "main", "aside", "nav"})
+
+
+class _AuthoredHTMLParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.root = HTMLNode("#document")
+        self.nodes: list[HTMLNode] = []
+        self.stack: list[HTMLNode] = [self.root]
+        self.errors: list[str] = []
+
+    @property
+    def current(self) -> HTMLNode:
+        return self.stack[-1]
+
+    def _start(self, tag: str, attrs: list[tuple[str, str | None]], push: bool) -> None:
+        raw_tag = self.get_starttag_text() or ""
+        quote: str | None = None
+        for character in raw_tag:
+            if quote:
+                if character == quote:
+                    quote = None
+            elif character in {"'", '"'}:
+                quote = character
+        if quote is not None:
+            self.errors.append(f"unterminated attribute quote in <{tag}>")
+        node = HTMLNode(tag.lower(), tuple((name.lower(), value) for name, value in attrs), self.current)
+        self.current.children.append(node)
+        self.current.content.append(node)
+        self.nodes.append(node)
+        if push and node.tag not in _HTML_VOID_TAGS:
+            self.stack.append(node)
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self._start(tag, attrs, True)
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self._start(tag, attrs, False)
+
+    def handle_endtag(self, tag: str) -> None:
+        normalized = tag.lower()
+        if normalized in _HTML_VOID_TAGS:
+            self.errors.append(f"closing tag for void element <{normalized}>")
+            return
+        if len(self.stack) == 1:
+            self.errors.append(f"unexpected closing tag </{normalized}>")
+            return
+        if self.stack[-1].tag != normalized:
+            self.errors.append(f"unbalanced closing tag </{normalized}>")
+            matching = next(
+                (index for index in range(len(self.stack) - 1, 0, -1) if self.stack[index].tag == normalized),
+                None,
+            )
+            if matching is None:
+                return
+            del self.stack[matching:]
+            return
+        self.stack.pop()
+
+    def handle_data(self, data: str) -> None:
+        self.current.text_nodes.append(data)
+        self.current.content.append(data)
+
+    def handle_comment(self, data: str) -> None:
+        return
+
+    def handle_decl(self, decl: str) -> None:
+        if decl.lower() != "doctype html":
+            self.errors.append(f"unsupported declaration: {decl}")
+
+    def unknown_decl(self, data: str) -> None:
+        self.errors.append(f"unsupported declaration: {data}")
+
+    def handle_pi(self, data: str) -> None:
+        self.errors.append(f"processing instruction is not allowed: {data}")
+
+
+def parse_html(html: str | bytes) -> HTMLDocument:
+    """Parse authored HTML while retaining nodes, attributes, text, and errors."""
+
+    if isinstance(html, bytes):
+        try:
+            html = html.decode("utf-8")
+        except UnicodeDecodeError:
+            root = HTMLNode("#document")
+            return HTMLDocument(root, (), ("HTML is not valid UTF-8",))
+    if not isinstance(html, str):
+        raise TypeError("HTML must be text or UTF-8 bytes")
+    parser = _AuthoredHTMLParser()
+    try:
+        parser.feed(html)
+        parser.close()
+    except (ValueError, AssertionError) as exc:
+        parser.errors.append(f"HTML parser error: {exc}")
+    if len(parser.stack) != 1:
+        parser.errors.append("unclosed HTML element")
+    return HTMLDocument(parser.root, tuple(parser.nodes), tuple(parser.errors))
+
+
+def _attrs(node: HTMLNode, name: str) -> list[str | None]:
+    return [value for attr, value in node.attrs if attr == name]
+
+
+def _attr(node: HTMLNode, name: str) -> str | None:
+    values = _attrs(node, name)
+    return values[0] if values else None
+
+
+def _class_names(node: HTMLNode) -> set[str]:
+    value = _attr(node, "class") or ""
+    return set(value.split())
+
+
+def _descendants(node: HTMLNode) -> Iterator[HTMLNode]:
+    for child in node.children:
+        yield child
+        yield from _descendants(child)
+
+
+def _node_text(node: HTMLNode) -> str:
+    parts: list[str] = []
+    for item in node.content:
+        parts.append(item if isinstance(item, str) else _node_text(item))
+    return "".join(parts)
+
+
+def _ancestor(node: HTMLNode, tags: set[str]) -> HTMLNode | None:
+    current = node.parent
+    while current is not None:
+        if current.tag in tags:
+            return current
+        current = current.parent
+    return None
+
+
+def _under(node: HTMLNode, ancestor: HTMLNode) -> bool:
+    current = node.parent
+    while current is not None:
+        if current is ancestor:
+            return True
+        current = current.parent
+    return False
+
+
+def _normal_text(text: str) -> str:
+    return " ".join(text.split()).casefold()
+
+
+def _markdown_inline_text(line: str) -> str:
+    code_spans: list[str] = []
+
+    def protect_code_span(match: re.Match[str]) -> str:
+        content = match.group(2)
+        if len(content) >= 2 and content.startswith(" ") and content.endswith(" ") and content.strip():
+            content = content[1:-1]
+        code_spans.append(content)
+        return f"\x00code{len(code_spans) - 1}\x00"
+
+    line = re.sub(r"(`+)([^`\r\n]*?)\1", protect_code_span, line)
+    line = _MD_AUTOLINK_RE.sub(r"\1", line)
+    raw_tags: list[str] = []
+
+    def protect_raw_tag(match: re.Match[str]) -> str:
+        raw_tags.append(match.group(0))
+        return f"\x00raw{len(raw_tags) - 1}\x00"
+
+    line = re.sub(r"</?[A-Za-z][^>]*>", protect_raw_tag, line)
+    line = _MD_LINK_RE.sub(r"\1", line)
+    line = _MD_REFERENCE_LINK_RE.sub(r"\1", line)
+    line = re.sub(r"(?<!\w)\[([^\]]+)\]", r"\1", line)
+    line = re.sub(r"\*\*|__|~~", "", line)
+    line = re.sub(r"(?<!\w)[*_](?=\w)|(?<=\w)[*_](?!\w)", "", line)
+    line = re.sub(r"\\([\\`*{}\[\]()#+.!_>~-])", r"\1", line)
+    line = re.sub(r"\x00code(\d+)\x00", lambda match: code_spans[int(match.group(1))], line)
+    return re.sub(r"\x00raw(\d+)\x00", lambda match: raw_tags[int(match.group(1))], line)
+
+
+def _markdown_link_destinations(markdown: str) -> list[str]:
+    references: dict[str, str] = {}
+    lines = markdown.splitlines()
+    fence_marker: str | None = None
+    fence_length = 0
+    for raw_line in lines:
+        line = raw_line.rstrip("\r\n")
+        if fence_marker is not None:
+            close = _MD_FENCE_CLOSE_RE.match(line)
+            if close and close.group(2)[0] == fence_marker and len(close.group(2)) >= fence_length:
+                fence_marker = None
+                fence_length = 0
+            continue
+        opened = _MD_FENCE_OPEN_RE.match(line)
+        if opened:
+            fence = opened.group(2)
+            if not (fence[0] == "`" and "`" in opened.group(3)):
+                fence_marker = fence[0]
+                fence_length = len(fence)
+                continue
+        definition = _MD_REFERENCE_DEF_RE.match(line)
+        if definition:
+            destination = definition.group(2) or definition.group(3)
+            if destination is not None:
+                references.setdefault(" ".join(definition.group(1).split()).casefold(), destination)
+
+    destinations: list[str] = []
+    fence_marker = None
+    fence_length = 0
+    for raw_line in lines:
+        line = raw_line.rstrip("\r\n")
+        if fence_marker is not None:
+            close = _MD_FENCE_CLOSE_RE.match(line)
+            if close and close.group(2)[0] == fence_marker and len(close.group(2)) >= fence_length:
+                fence_marker = None
+                fence_length = 0
+            continue
+        opened = _MD_FENCE_OPEN_RE.match(line)
+        if opened:
+            fence = opened.group(2)
+            if not (fence[0] == "`" and "`" in opened.group(3)):
+                fence_marker = fence[0]
+                fence_length = len(fence)
+                continue
+        if _MD_REFERENCE_DEF_RE.match(line):
+            continue
+        masked = re.sub(r"`+[^`\r\n]*`+", lambda match: " " * len(match.group(0)), line)
+        for match in _MD_LINK_SCAN_RE.finditer(masked):
+            if match.group("inline_angle") is not None:
+                destinations.append(match.group("inline_angle"))
+            elif match.group("inline") is not None:
+                destinations.append(match.group("inline"))
+            elif match.group("autolink") is not None:
+                destinations.append(match.group("autolink")[1:-1])
+            else:
+                label = match.group("reference") or match.group("label") or match.group("shortcut")
+                destination = references.get(" ".join(label.split()).casefold())
+                if destination is not None:
+                    destinations.append(destination)
+    return destinations
+
+
+def _markdown_visible_text(markdown: str, *, include_fenced_code: bool = True) -> str:
+    fragments: list[str] = []
+    fence_marker: str | None = None
+    fence_length = 0
+    for raw_line in markdown.splitlines():
+        line = raw_line.rstrip("\r\n")
+        if fence_marker is not None:
+            close = _MD_FENCE_CLOSE_RE.match(line)
+            if close and close.group(2)[0] == fence_marker and len(close.group(2)) >= fence_length:
+                fence_marker = None
+                fence_length = 0
+            elif include_fenced_code:
+                fragments.append(line)
+            continue
+        opened = _MD_FENCE_OPEN_RE.match(line)
+        if opened:
+            fence = opened.group(2)
+            if fence[0] == "`" and "`" in opened.group(3):
+                opened = None
+            else:
+                fence_marker = fence[0]
+                fence_length = len(fence)
+                continue
+        if _MD_REFERENCE_RE.match(line) or _MD_TABLE_SEPARATOR_RE.match(line):
+            continue
+        line = re.sub(r"^ {0,3}(?:[-+*]|\d+[.)])[ \t]+", "", line)
+        line = re.sub(r"^ {0,3}>[ \t]?", "", line)
+        line = re.sub(r"^ {0,3}\[[ xX]\][ \t]+", "", line)
+        line = re.sub(r"^ {0,3}#{1,6}[ \t]+", "", line)
+        line = line.replace("|", " ") if "|" in line else line
+        fragments.append(_markdown_inline_text(line))
+    return "\n".join(fragments)
+
+
+def _tokens(text: str) -> list[str]:
+    return [token.casefold() for token in _MD_TOKEN_RE.findall(text)]
+
+
+def _main_visible_text(main: HTMLNode) -> str:
+    parts: list[str] = []
+    block_tags = {
+        "article",
+        "dd",
+        "div",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "li",
+        "p",
+        "section",
+        "td",
+        "th",
+        "tr",
+    }
+
+    def visit(node: HTMLNode) -> None:
+        if (
+            node.tag in _OUTLINE_EXCLUDED_TAGS
+            or "task-number" in _class_names(node)
+            or "skip-link" in _class_names(node)
+        ):
+            return
+        if node.tag in block_tags and parts and not parts[-1].endswith((" ", "\n", "\t")):
+            parts.append(" ")
+        for item in node.content:
+            if isinstance(item, str):
+                parts.append(item)
+            else:
+                visit(item)
+        if node.tag in block_tags:
+            parts.append(" ")
+
+    visit(main)
+    return "".join(parts)
+
+
+def _source_headings(markdown: str) -> list[tuple[int, str]]:
+    headings: list[tuple[int, str]] = []
+    fence_marker: str | None = None
+    fence_length = 0
+    for raw_line in markdown.splitlines():
+        line = raw_line.rstrip("\r\n")
+        if fence_marker is not None:
+            close = _MD_FENCE_CLOSE_RE.match(line)
+            if close and close.group(2)[0] == fence_marker and len(close.group(2)) >= fence_length:
+                fence_marker = None
+                fence_length = 0
+            continue
+        opened = _MD_FENCE_OPEN_RE.match(line)
+        if opened:
+            fence = opened.group(2)
+            if not (fence[0] == "`" and "`" in opened.group(3)):
+                fence_marker = fence[0]
+                fence_length = len(fence)
+                continue
+        match = _MD_HEADING_RE.match(line)
+        if match:
+            headings.append((len(match.group(1)), _markdown_inline_text(match.group(2)).strip()))
+    return headings
+
+
+def _source_task_headings(markdown: str) -> list[tuple[int, str]]:
+    return [
+        (int(match.group(1)), match.group(2).strip())
+        for level, title in _source_headings(markdown)
+        if level == 2
+        and (match := _MD_TASK_RE.match(f"## {title}"))
+    ]
+
+
+def _slugify(text: str, used: dict[str, int]) -> str:
+    slug = re.sub(r"\s+", "-", text.strip())
+    slug = re.sub(r"[^\w\-]", "", slug, flags=re.UNICODE)
+    slug = slug.strip("-").lower() or "section"
+    occurrence = used.get(slug, 0)
+    used[slug] = occurrence + 1
+    return slug if occurrence == 0 else f"{slug}-{occurrence}"
+
+
+def _relative_resource(root: Path, html_path: Path, value: str) -> str | None:
+    split = urlsplit(value)
+    if split.scheme or split.netloc:
+        return None
+    decoded = unquote(split.path)
+    if not decoded or "\\" in decoded:
+        return None
+    if decoded.startswith("/"):
+        candidate = root / decoded.lstrip("/")
+    else:
+        candidate = html_path.parent / decoded
+    try:
+        return candidate.resolve(strict=False).relative_to(root).as_posix()
+    except (ValueError, OSError, RuntimeError):
+        return None
+
+
+def _language_from_source(markdown: str) -> str | None:
+    markdown = re.sub(r"`+[^`\r\n]*`+", " ", markdown)
+    prose = _markdown_visible_text(markdown, include_fenced_code=False)
+    prose = re.sub(r"</?[A-Za-z][^>]*>", " ", prose)
+    if re.search(r"[\u3040-\u30ff]", prose):
+        return "ja"
+    if re.search(r"[\uac00-\ud7af]", prose):
+        return "ko"
+    if re.search(r"[\u0400-\u04ff]", prose):
+        return "ru"
+    if re.search(r"[\u0600-\u06ff]", prose):
+        return "ar"
+    if re.search(r"[\u0590-\u05ff]", prose):
+        return "he"
+    if re.search(r"[\u0370-\u03ff]", prose):
+        return "el"
+    words = {word.casefold() for word in re.findall(r"[A-Za-z]+", prose)}
+    if not words:
+        return None
+    scores = {language: len(words & common) for language, common in _LANGUAGE_WORDS.items()}
+    winner, score = max(scores.items(), key=lambda item: item[1])
+    return winner if score else "en"
+
+
+def _issue(code: str, message: str, source_relative: str) -> dict[str, str]:
+    return {"code": code, "message": message, "path": source_relative}
+
+
+def _csp_directives(content: str) -> dict[str, set[str]]:
+    directives: dict[str, set[str]] = {}
+    for part in content.split(";"):
+        values = part.split()
+        if not values:
+            continue
+        name = values[0].casefold()
+        directives.setdefault(name, set()).update(value.casefold() for value in values[1:])
+    return directives
+
+
+def _outline_name(node: HTMLNode, document: HTMLDocument) -> bool:
+    label = _attr(node, "aria-label")
+    if label and label.strip():
+        return True
+    labelled_by = (_attr(node, "aria-labelledby") or "").split()
+    ids = set(document.fragments)
+    return bool(labelled_by and set(labelled_by) <= ids)
+
+
+def _validation_result(
+    target: Target,
+    violations: list[dict[str, str]],
+    warnings: list[dict[str, str]],
+    expected_digest: str | None,
+) -> PolicyResult:
+    paths = [target.source_relative, target.companion_relative]
+    expected = {target.companion_relative: expected_digest} if expected_digest else {}
+    if violations:
+        message = f"HTML validation failed for {target.companion_relative}: " + " ".join(
+            item["message"] for item in violations
+        )
+        decision = "deny"
+    else:
+        message = f"HTML companion {target.companion_relative} is valid."
+        decision = "allow"
+    return {
+        "decision": decision,
+        "message": message,
+        "paths": paths,
+        "expected_digests": expected,
+        "violations": violations,
+        "warnings": warnings,
+    }
+
+
+def validate_html(
+    repo_root: PathInput,
+    source_path: PathInput,
+    companion_path: PathInput | None = None,
+) -> PolicyResult:
+    """Validate one authored HTML companion against its canonical Markdown source."""
+
+    root = _repository_root(repo_root)
+    target = _target_from_relative(root, _path_and_relative(root, source_path)[1])
+    if target is None:
+        raise PolicyInputError(f"path is not a Target document: {source_path}")
+    if companion_path is not None:
+        supplied_target = _target_from_relative(
+            root, _path_and_relative(root, companion_path)[1]
+        )
+        if (
+            supplied_target is None
+            or supplied_target != target
+            or supplied_target.companion_path != _path_and_relative(root, companion_path)[0]
+        ):
+            raise PolicyInputError("source and companion paths do not name one target pair")
+
+    violations: list[dict[str, str]] = []
+    warnings: list[dict[str, str]] = []
+    source_relative = target.source_relative
+    expected_digest: str | None = None
+    source_available = True
+    try:
+        source_bytes = target.source_path.read_bytes()
+    except (FileNotFoundError, IsADirectoryError, OSError):
+        source_available = False
+        violations.append(_issue("source-missing", f"Markdown source {source_relative} is unavailable.", source_relative))
+        source_bytes = b""
+    if source_available:
+        expected_digest = f"sha256:{sha256_file(target.source_path)}"
+    try:
+        source_text = source_bytes.decode("utf-8")
+    except UnicodeDecodeError:
+        source_text = ""
+        violations.append(_issue("source-encoding", f"Markdown source {source_relative} is not UTF-8.", source_relative))
+
+    try:
+        html_bytes = target.companion_path.read_bytes()
+    except (FileNotFoundError, IsADirectoryError, OSError):
+        violations.append(_issue("companion-missing", f"HTML companion {target.companion_relative} is unavailable.", source_relative))
+        return _validation_result(target, violations, warnings, expected_digest)
+    document = parse_html(html_bytes)
+    for error in document.errors:
+        violations.append(_issue("malformed-html", error, source_relative))
+
+    html_nodes = [node for node in document.nodes if node.tag == "html"]
+    if len(html_nodes) != 1:
+        violations.append(_issue("html-element", "The companion must contain exactly one html element.", source_relative))
+    html_node = html_nodes[0] if len(html_nodes) == 1 else None
+
+    metadata = parse_digest_metadata(html_bytes)
+    if not metadata.is_valid:
+        violations.append(_issue("digest-metadata", f"Source digest metadata is {metadata.status.value}.", source_relative))
+    elif metadata.digest != expected_digest:
+        violations.append(_issue("digest-mismatch", f"Digest does not match the exact bytes of {source_relative}.", source_relative))
+
+    if html_node is not None:
+        lang = (_attr(html_node, "lang") or "").strip()
+        if not lang or lang.casefold() == "und":
+            violations.append(_issue("language", "html lang must name the dominant prose language, not und.", source_relative))
+        elif not re.fullmatch(r"[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*", lang):
+            violations.append(_issue("language", "html lang must be a language tag.", source_relative))
+        else:
+            dominant = _language_from_source(source_text)
+            if dominant and lang.split("-", 1)[0].casefold() != dominant:
+                violations.append(_issue("language", f"html lang {lang!r} does not match dominant prose language {dominant!r}.", source_relative))
+
+    meta_charset = [node for node in document.nodes if node.tag == "meta" and _attr(node, "charset") is not None]
+    if len(meta_charset) != 1 or (_attr(meta_charset[0], "charset") or "").casefold() != "utf-8":
+        violations.append(_issue("charset", "Exactly one UTF-8 charset declaration is required.", source_relative))
+    viewports = [
+        node for node in document.nodes
+        if node.tag == "meta" and (_attr(node, "name") or "").casefold() == "viewport"
+    ]
+    if len(viewports) != 1 or not (_attr(viewports[0], "content") or "").strip():
+        violations.append(_issue("viewport", "Exactly one non-empty viewport declaration is required.", source_relative))
+    titles = [node for node in document.nodes if node.tag == "title"]
+    if len(titles) != 1 or not _node_text(titles[0]).strip():
+        violations.append(_issue("title", "Exactly one non-empty title is required.", source_relative))
+
+    csp_nodes = [
+        node for node in document.nodes
+        if node.tag == "meta" and (_attr(node, "http-equiv") or "").casefold() == "content-security-policy"
+    ]
+    if len(csp_nodes) != 1:
+        violations.append(_issue("csp", "Exactly one restrictive Content-Security-Policy is required.", source_relative))
+    else:
+        directives = _csp_directives(_attr(csp_nodes[0], "content") or "")
+        for name, expected in _CSP_REQUIRED.items():
+            if directives.get(name) != expected:
+                violations.append(_issue("csp", f"CSP directive {name} is not restrictive enough.", source_relative))
+        extra_directives = sorted(set(directives) - set(_CSP_REQUIRED))
+        if extra_directives:
+            violations.append(
+                _issue(
+                    "csp",
+                    "CSP contains unsupported directives: "
+                    + ", ".join(extra_directives)
+                    + ".",
+                    source_relative,
+                )
+            )
+        forbidden_csp_values = {"*", "http:", "https:", "'unsafe-inline'", "'unsafe-eval'"}
+        if any(value in forbidden_csp_values for values in directives.values() for value in values):
+            violations.append(_issue("csp", "CSP contains a broad or executable source.", source_relative))
+
+    stylesheet_links = [
+        node for node in document.nodes
+        if node.tag == "link" and "stylesheet" in {token.casefold() for token in (_attr(node, "rel") or "").split()}
+    ]
+    if len(stylesheet_links) != 1:
+        violations.append(_issue("stylesheet-count", "Exactly one shared stylesheet link is required.", source_relative))
+    else:
+        href = _attr(stylesheet_links[0], "href") or ""
+        relative = _relative_resource(root, target.companion_path, href)
+        if relative != "docs/sdd/assets/sdd.css":
+            violations.append(_issue("stylesheet-resource", "The stylesheet must resolve to docs/sdd/assets/sdd.css inside the repository.", source_relative))
+
+    for node in document.nodes:
+        if node.tag == "meta" and any(
+            (value or "").casefold() == "refresh"
+            for value in _attrs(node, "http-equiv")
+        ):
+            violations.append(
+                _issue(
+                    "meta-refresh",
+                    "Meta refresh redirects are not allowed.",
+                    source_relative,
+                )
+            )
+        for name, value in node.attrs:
+            if name.startswith("on"):
+                violations.append(_issue("event-attribute", f"Event attribute {name} is not allowed.", source_relative))
+            if name == "style":
+                violations.append(_issue("style-attribute", "Inline style attributes are not allowed.", source_relative))
+            if name in {"srcdoc", "formaction"}:
+                violations.append(_issue("executable-attribute", f"Attribute {name} is not allowed.", source_relative))
+            if name in {"href", "src", "poster", "data"} and value:
+                scheme = urlsplit(value).scheme.casefold()
+                if scheme in {"javascript", "vbscript"} or value.casefold().startswith("data:text/html"):
+                    violations.append(_issue("executable-resource", f"Executable resource {value!r} is not allowed.", source_relative))
+        if node.tag in _FORBIDDEN_TAGS:
+            violations.append(_issue("unsafe-tag", f"Tag <{node.tag}> is not allowed in authored HTML.", source_relative))
+        if node.tag == "font":
+            violations.append(_issue("external-font", "Font elements and external fonts are not allowed.", source_relative))
+        if node.tag == "link" and (
+            "font" in {token.casefold() for token in (_attr(node, "rel") or "").split()}
+            or (_attr(node, "as") or "").casefold() == "font"
+        ):
+            violations.append(_issue("external-font", "External font resources are not allowed.", source_relative))
+        if node.tag in _MEDIA_TAGS:
+            for attr_name in ("src", "poster", "srcset"):
+                value = _attr(node, attr_name)
+                if not value:
+                    continue
+                values = value.split(",") if attr_name == "srcset" else [value]
+                for resource in values:
+                    resource_value = resource.strip().split()[0]
+                    resource_lower = resource_value.casefold()
+                    if resource_lower.startswith("data:image/"):
+                        continue
+                    if resource_lower.startswith("data:"):
+                        violations.append(_issue("network-resource", f"Non-image data resource {resource_value!r} is not allowed.", source_relative))
+                    elif _relative_resource(root, target.companion_path, resource_value) is None:
+                        violations.append(_issue("network-resource", f"Network-dependent resource {resource_value!r} is not allowed.", source_relative))
+
+    bodies = [node for node in document.nodes if node.tag == "body"]
+    mains = [node for node in document.nodes if node.tag == "main"]
+    headers = [node for node in document.nodes if node.tag == "header"]
+    if len(bodies) != 1:
+        violations.append(_issue("body", "Exactly one body element is required.", source_relative))
+    if len(mains) != 1:
+        violations.append(_issue("main", "Exactly one main element is required.", source_relative))
+    main = mains[0] if len(mains) == 1 else None
+    if len(headers) != 1:
+        violations.append(_issue("document-header", "Exactly one document-kind header is required.", source_relative))
+    else:
+        kind_label = {"context": "glossary", "adr": "adr", "spec": "spec", "plan": "plan"}[target.kind]
+        header_text = _node_text(headers[0]).casefold()
+        header_kind = (_attr(headers[0], "data-document-kind") or "").casefold()
+        if kind_label not in header_text and kind_label != header_kind:
+            violations.append(_issue("document-header", f"Header must identify this document as {kind_label}.", source_relative))
+    if main is not None:
+        main_id = _attr(main, "id")
+        tabindex = _attr(main, "tabindex")
+        if not main_id:
+            violations.append(_issue("main-target", "main must have a non-empty content target id.", source_relative))
+        if tabindex is None or not re.fullmatch(r"-?[0-9]+", tabindex) or int(tabindex) > 0:
+            violations.append(_issue("main-focus", "main must be programmatically focusable with tabindex -1 or lower.", source_relative))
+        if bodies:
+            first_content = next(
+                (item for item in bodies[0].content if not isinstance(item, str) or item.strip()),
+                None,
+            )
+            if (
+                not isinstance(first_content, HTMLNode)
+                or first_content.tag != "a"
+                or (_attr(first_content, "href") or "") != f"#{main_id}"
+            ):
+                violations.append(_issue("skip-link", "The body must start with a skip link targeting main.", source_relative))
+        skip_links = [
+            node for node in document.nodes
+            if node.tag == "a" and "skip-link" in _class_names(node)
+        ]
+        if not skip_links or not main_id or not any((_attr(node, "href") or "") == f"#{main_id}" for node in skip_links):
+            violations.append(_issue("skip-link", "A skip link to main is required.", source_relative))
+
+    if main is not None:
+        html_headings = [
+            node for node in _descendants(main)
+            if node.tag in {f"h{i}" for i in range(1, 7)} and _ancestor(node, _OUTLINE_EXCLUDED_TAGS) is None
+        ]
+        source_headings = _source_headings(source_text)
+        if len(html_headings) != len(source_headings):
+            violations.append(_issue("heading-structure", "Heading count does not match the Markdown source.", source_relative))
+        used: dict[str, int] = {}
+        for index, (source_heading, html_heading) in enumerate(zip(source_headings, html_headings)):
+            source_level, source_title = source_heading
+            expected_id = _slugify(source_title, used)
+            html_level = int(html_heading.tag[1])
+            if html_level != source_level or _normal_text(_node_text(html_heading)) != _normal_text(source_title):
+                violations.append(_issue("heading-structure", f"Heading {index + 1} does not preserve its Markdown level and text.", source_relative))
+            if _attr(html_heading, "id") != expected_id:
+                violations.append(_issue("heading-id", f"Heading {index + 1} must use stable id {expected_id!r}.", source_relative))
+        if len(html_headings) != len(set(_attr(node, "id") for node in html_headings)):
+            violations.append(_issue("heading-id", "Heading ids must be unique.", source_relative))
+        if sum(1 for node in html_headings if node.tag == "h1") > 1:
+            warnings.append(_issue("multiple-h1", "Multiple h1 headings are preserved from Markdown.", source_relative))
+        previous_level = 0
+        for node in html_headings:
+            level = int(node.tag[1])
+            if previous_level and level > previous_level + 1:
+                warnings.append(_issue("skipped-heading-level", "Heading levels skip a rank; the source level was preserved.", source_relative))
+            previous_level = level
+
+        outlines = [node for node in document.nodes if node.tag in _OUTLINE_TAGS]
+        outline_headings = [node for node in html_headings if node.tag in {"h2", "h3"}]
+        if outline_headings:
+            named_outlines = [node for node in outlines if _outline_name(node, document)]
+            if not named_outlines:
+                violations.append(_issue("outline-missing", "A named aside/nav outline is required for h2 or h3 headings.", source_relative))
+            else:
+                outline = named_outlines[0]
+                if not any(
+                    node.tag == "details" for node in _descendants(outline)
+                ) and _ancestor(outline, {"details"}) is None:
+                    violations.append(_issue("outline-details", "The outline must be exposed through native details.", source_relative))
+                outline_ids = {
+                    (_attr(node, "href") or "")[1:]
+                    for node in _descendants(outline)
+                    if node.tag == "a" and (_attr(node, "href") or "").startswith("#")
+                }
+                expected_outline_ids = {_attr(node, "id") for node in outline_headings}
+                if not expected_outline_ids <= outline_ids:
+                    violations.append(_issue("outline-links", "Every h2 and h3 heading must be reachable from the outline.", source_relative))
+        else:
+            for outline in outlines:
+                if not _node_text(outline).strip():
+                    violations.append(_issue("empty-outline", "Empty aside/nav elements are not allowed without h2 or h3 headings.", source_relative))
+
+        ids = set(document.fragments)
+        fragment_ids = list(document.fragments)
+        if len(fragment_ids) != len(ids):
+            violations.append(_issue("fragment-id", "Element ids must be unique.", source_relative))
+        for node in document.nodes:
+            if node.tag == "a":
+                href = _attr(node, "href") or ""
+                if href.startswith("#") and href[1:] not in ids:
+                    violations.append(_issue("fragment-target", f"Fragment target {href!r} does not resolve.", source_relative))
+
+        tables = [node for node in _descendants(main) if node.tag == "table"]
+        for table in tables:
+            captions = [node for node in _descendants(table) if node.tag == "caption"]
+            if not captions or not _node_text(captions[0]).strip():
+                violations.append(_issue("table-caption", "Every data table needs a non-empty caption.", source_relative))
+            headers_in_table = [node for node in _descendants(table) if node.tag == "th"]
+            if not headers_in_table or any((_attr(node, "scope") or "").casefold() not in _SCOPE_VALUES for node in headers_in_table):
+                violations.append(_issue("table-header-scope", "Every table header cell needs a valid scope.", source_relative))
+
+        if target.kind == "context":
+            dls = [node for node in _descendants(main) if node.tag == "dl"]
+            terms = [node for node in _descendants(main) if node.tag == "dt"]
+            definitions = [node for node in _descendants(main) if node.tag == "dd"]
+            if not dls or not terms or not definitions:
+                violations.append(_issue("glossary-structure", "Glossaries must use dl with dt and dd entries.", source_relative))
+            if "avoid" in _markdown_visible_text(source_text).casefold():
+                avoid_text = [node for node in _descendants(main) if "avoid" in _node_text(node).casefold()]
+                if not any(_ancestor(node, {"dd"}) is not None for node in avoid_text):
+                    violations.append(_issue("glossary-avoid", "An _Avoid_ paragraph must remain inside its related dd.", source_relative))
+        elif target.kind == "adr":
+            if not any(node.tag == "article" and _under(node, main) for node in document.nodes):
+                violations.append(_issue("adr-article", "ADRs must use a compact decision article.", source_relative))
+        elif target.kind == "spec":
+            for heading in html_headings:
+                if heading.tag == "h2" and _ancestor(heading, {"section"}) is None:
+                    violations.append(_issue("spec-section", "Spec h2 headings must be contained in semantic section blocks.", source_relative))
+        elif target.kind == "plan":
+            task_headings = _source_task_headings(source_text)
+            task_articles = [
+                node for node in document.nodes
+                if node.tag == "article" and _under(node, main) and _attr(node, "data-task-number")
+            ]
+            numbers = {_attr(node, "data-task-number") for node in task_articles}
+            for number, _title in task_headings:
+                if str(number) not in numbers:
+                    violations.append(_issue("plan-task-article", f"Plan task {number} must be an independent article.", source_relative))
+            for node in task_articles:
+                if not any(_under(heading, node) for heading in html_headings if heading.tag in {"h2", "h3"}):
+                    violations.append(_issue("plan-task-article", "Each plan task article must contain its task heading.", source_relative))
+
+        source_tokens = _tokens(_markdown_visible_text(source_text))
+        html_tokens = _tokens(_main_visible_text(main))
+        if source_tokens != html_tokens:
+            index = next(
+                (position for position, (expected, actual) in enumerate(zip(source_tokens, html_tokens)) if expected != actual),
+                min(len(source_tokens), len(html_tokens)),
+            )
+            expected_fragment = source_tokens[index] if index < len(source_tokens) else "<end>"
+            actual_fragment = html_tokens[index] if index < len(html_tokens) else "<end>"
+            if expected_fragment in html_tokens[index + 1:]:
+                detail = f"source fragment {expected_fragment!r} is reordered"
+            else:
+                detail = f"source fragment {expected_fragment!r} is missing or changed (found {actual_fragment!r})"
+            violations.append(_issue("source-text", f"First source-text mismatch: {detail}.", source_relative))
+
+        source_links = _markdown_link_destinations(source_text)
+        html_links = [
+            _attr(node, "href") or ""
+            for node in _descendants(main)
+            if node.tag == "a"
+            and _ancestor(node, {"aside", "nav"}) is None
+            and "skip-link" not in _class_names(node)
+        ]
+        if source_links != html_links:
+            index = next(
+                (
+                    position
+                    for position, (expected, actual) in enumerate(
+                        zip(source_links, html_links)
+                    )
+                    if expected != actual
+                ),
+                min(len(source_links), len(html_links)),
+            )
+            expected = source_links[index] if index < len(source_links) else "<end>"
+            actual = html_links[index] if index < len(html_links) else "<end>"
+            violations.append(
+                _issue(
+                    "link-destination",
+                    f"Link destination {index + 1} does not preserve Markdown "
+                    f"source {expected!r} (found {actual!r}).",
+                    source_relative,
+                )
+            )
+
+    return _validation_result(target, violations, warnings, expected_digest)
+
+
+# These names make the validator easy to consume from policy-oriented callers.
+validate_companion = validate_html
+validate_target = validate_html
+validate_authored_html = validate_html
+validate_document = validate_html

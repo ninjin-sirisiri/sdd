@@ -1,31 +1,44 @@
 <!DOCTYPE html>
-<html lang="und">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src &#x27;none&#x27;; img-src &#x27;self&#x27; data:; style-src &#x27;self&#x27;; base-uri &#x27;none&#x27;; form-action &#x27;none&#x27;; frame-ancestors &#x27;none&#x27;">
+<meta name="sdd-source-digest" content="sha256:367e53f5ab6abb9abd3d213f125bae980bed2630f06eeb3c65f853aa2418a677">
 <title>Example design</title>
 <link rel="stylesheet" href="../assets/sdd.css">
 </head>
 <body>
-<header>
-<p>Spec</p>
-<nav aria-label="On this page">
-<ul>
-<li><a href="#goals">Goals</a></li>
-</ul>
-</nav>
-</header>
-<main>
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="document-header"><p class="document-kind">Spec</p></header>
+<main id="content" tabindex="-1">
 <h1 id="example-design">Example design</h1>
 <p>See the <a href="../plans/2026-01-01-example.md">plan</a>.</p>
+<aside aria-label="Document outline">
+<details open>
+<summary>On this page</summary>
+<nav aria-label="On this page">
+<a href="#goals">Goals</a>
+<a href="#detail">Detail</a>
+</nav>
+</details>
+</aside>
 <section>
 <h2 id="goals">Goals</h2>
 <ul>
 <li>Keep Markdown canonical.</li>
 </ul>
+<section>
+<h3 id="detail">Detail</h3>
+<p>Use <code>semantic HTML</code> for the <a href="https://example.com/docs">published document</a>.</p>
+<table>
+<caption>Design rules</caption>
+<thead><tr><th scope="col">Area</th><th scope="col">Rule</th></tr></thead>
+<tbody><tr><td>Source</td><td>Markdown</td></tr><tr><td>Companion</td><td>Authored HTML</td></tr></tbody>
+</table>
+<p>Raw &lt;span&gt;HTML&lt;/span&gt; stays text.</p>
 </section>
-
+</section>
 </main>
 </body>
 </html>
