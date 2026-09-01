@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+import shutil
 
 import pytest
 
@@ -10,10 +11,15 @@ from sddlib.html_policy import (
     PathOutsideRepository,
     PolicyInputError,
     check_edit,
+    parse_html,
     parse_digest_metadata,
     resolve_target,
     sha256_file,
+    validate_html,
 )
+
+
+FIXTURE_ROOT = Path(__file__).parent / "fixtures"
 
 
 def _write_source(root: Path, relative: str = "CONTEXT.md", content: bytes = b"# Context\n") -> Path:
@@ -243,3 +249,223 @@ def test_unknown_and_malformed_policy_paths_are_structured_input_errors(
     with pytest.raises(PathOutsideRepository) as error:
         check_edit(tmp_path, [tmp_path.parent / "CONTEXT.md"])
     assert error.value.exit_code == 2
+
+
+def _copy_fixture(tmp_path: Path, relative_directory: str, stem: str) -> tuple[Path, Path]:
+    fixture_source = FIXTURE_ROOT / relative_directory / f"{stem}.md"
+    if relative_directory == "glossary":
+        target_relative = Path("CONTEXT.md")
+    elif relative_directory == "adr":
+        target_relative = Path("docs/adr") / f"{stem}.md"
+    elif relative_directory == "spec":
+        target_relative = Path("docs/sdd/specs") / f"{stem}.md"
+    else:
+        target_relative = Path("docs/sdd/plans") / f"{stem}.md"
+    html_relative = target_relative.with_suffix(".html")
+    source = tmp_path / target_relative
+    companion = tmp_path / html_relative
+    source.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(fixture_source, source)
+    shutil.copyfile(fixture_source.with_suffix(".html"), companion)
+    css = tmp_path / "docs/sdd/assets/sdd.css"
+    css.parent.mkdir(parents=True, exist_ok=True)
+    css.write_text("/* fixture stylesheet */\n", encoding="utf-8")
+    return source, companion
+
+
+def _violation_codes(result: dict[str, object]) -> set[str]:
+    return {item["code"] for item in result["violations"]}  # type: ignore[index]
+
+
+def test_authored_fixtures_validate_each_document_kind(tmp_path: Path) -> None:
+    cases = (
+        ("glossary", "CONTEXT"),
+        ("adr", "0001-use-postgres"),
+        ("spec", "2026-01-01-example-design"),
+        ("plan", "2026-01-01-example"),
+    )
+    for directory, stem in cases:
+        source, _companion = _copy_fixture(tmp_path, directory, stem)
+        result = validate_html(tmp_path, source)
+        assert result["decision"] == "allow", result
+        assert result["violations"] == []
+
+
+def test_glossary_requires_dl_and_keeps_avoid_inside_dd(tmp_path: Path) -> None:
+    source, companion = _copy_fixture(tmp_path, "glossary", "CONTEXT")
+    result = validate_html(tmp_path, source, companion)
+    assert result["decision"] == "allow", result
+
+    companion.write_text(
+        companion.read_text(encoding="utf-8").replace("<dl>", "<div>").replace("</dl>", "</div>"),
+        encoding="utf-8",
+    )
+    invalid = validate_html(tmp_path, source, companion)
+    assert "glossary-structure" in _violation_codes(invalid)
+
+
+def test_adr_allows_compact_decision_article_without_invented_headings(tmp_path: Path) -> None:
+    source, _companion = _copy_fixture(tmp_path, "adr", "0001-use-postgres")
+    result = validate_html(tmp_path, source)
+    assert result["decision"] == "allow", result
+    assert result["warnings"] == []
+
+
+def test_spec_and_plan_fixtures_preserve_semantic_sections_and_tasks(tmp_path: Path) -> None:
+    spec_source, _spec_companion = _copy_fixture(
+        tmp_path, "spec", "2026-01-01-example-design"
+    )
+    plan_source, _plan_companion = _copy_fixture(
+        tmp_path, "plan", "2026-01-01-example"
+    )
+    spec = validate_html(tmp_path, spec_source)
+    plan = validate_html(tmp_path, plan_source)
+    assert spec["decision"] == "allow", spec
+    assert plan["decision"] == "allow"
+
+
+def test_duplicate_heading_ids_use_occurrence_suffixes(tmp_path: Path) -> None:
+    source, companion = _copy_fixture(tmp_path, "spec", "duplicate-headings")
+    result = validate_html(tmp_path, source, companion)
+    assert result["decision"] == "allow", result
+
+    companion.write_text(
+        companion.read_text(encoding="utf-8").replace(
+            'id="repeat-1"', 'id="wrong-repeat"'
+        ),
+        encoding="utf-8",
+    )
+    invalid = validate_html(tmp_path, source, companion)
+    assert "heading-id" in _violation_codes(invalid)
+
+
+def test_missing_outline_is_a_violation_when_h2_or_h3_exists(tmp_path: Path) -> None:
+    source, companion = _copy_fixture(
+        tmp_path, "spec", "2026-01-01-example-design"
+    )
+    html = companion.read_text(encoding="utf-8")
+    start = html.index("<aside")
+    end = html.index("</aside>", start) + len("</aside>")
+    companion.write_text(html[:start] + html[end:], encoding="utf-8")
+    result = validate_html(tmp_path, source, companion)
+    assert "outline-missing" in _violation_codes(result)
+
+
+def test_parser_retains_order_and_rejects_malformed_or_unbalanced_html(
+    tmp_path: Path,
+) -> None:
+    source, companion = _copy_fixture(
+        tmp_path, "adr", "0001-use-postgres"
+    )
+    document = parse_html('<main><p>before <strong>after</strong></p></main>')
+    assert [node.tag for node in document.nodes] == ["main", "p", "strong"]
+    assert document.root.children[0].content[0].tag == "p"  # type: ignore[union-attr]
+
+    companion.write_text(
+        companion.read_text(encoding="utf-8").replace("</main>", ""),
+        encoding="utf-8",
+    )
+    result = validate_html(tmp_path, source, companion)
+    assert "malformed-html" in _violation_codes(result)
+
+
+@pytest.mark.parametrize(
+    ("needle", "code"),
+    (
+        ("<script>alert(1)</script>", "unsafe-tag"),
+        (' onmouseover="alert(1)"', "event-attribute"),
+        (' style="color:red"', "style-attribute"),
+        ('href="https://cdn.example.test/sdd.css"', "stylesheet-resource"),
+        ('src="https://example.test/image.png"', "network-resource"),
+    ),
+)
+def test_unsafe_tags_attributes_and_resources_are_rejected(
+    tmp_path: Path, needle: str, code: str
+) -> None:
+    source, companion = _copy_fixture(
+        tmp_path, "spec", "2026-01-01-example-design"
+    )
+    html = companion.read_text(encoding="utf-8")
+    if needle.startswith("<script"):
+        html = html.replace("<body>", f"<body>{needle}")
+    elif "href=" in needle:
+        html = html.replace('href="../assets/sdd.css"', needle)
+    elif "src=" in needle:
+        html = html.replace("</main>", f'<img {needle} alt="diagram"></main>')
+    else:
+        html = html.replace("<main", f"<main{needle}")
+    companion.write_text(html, encoding="utf-8")
+    result = validate_html(tmp_path, source, companion)
+    assert code in _violation_codes(result)
+
+
+def test_tables_need_caption_and_scoped_header_cells(tmp_path: Path) -> None:
+    source, companion = _copy_fixture(
+        tmp_path, "spec", "2026-01-01-example-design"
+    )
+    html = companion.read_text(encoding="utf-8")
+    html = html.replace("<caption>Design rules</caption>\n", "")
+    html = html.replace('<th scope="col">Area</th>', "<th>Area</th>")
+    companion.write_text(html, encoding="utf-8")
+    result = validate_html(tmp_path, source, companion)
+    assert {"table-caption", "table-header-scope"} <= _violation_codes(result)
+
+
+def test_source_omission_reports_first_missing_fragment_with_source_path(
+    tmp_path: Path,
+) -> None:
+    source, companion = _copy_fixture(
+        tmp_path, "plan", "2026-01-01-example"
+    )
+    companion.write_text(
+        companion.read_text(encoding="utf-8").replace(
+            "UNIQUE_TASK_TWO", "REMOVED_TASK_TWO"
+        ),
+        encoding="utf-8",
+    )
+    result = validate_html(tmp_path, source, companion)
+    assert "source-text" in _violation_codes(result)
+    assert result["violations"][0]["path"] == "docs/sdd/plans/2026-01-01-example.md"  # type: ignore[index]
+
+
+def test_source_reordering_is_reported_after_digest_is_updated(tmp_path: Path) -> None:
+    source, companion = _copy_fixture(
+        tmp_path, "plan", "2026-01-01-example"
+    )
+    original = source.read_bytes()
+    reordered = original.replace(
+        b"First body UNIQUE_TASK_ONE.\n\n## Task 2: Second thing\n\nSecond body UNIQUE_TASK_TWO.",
+        b"Second body UNIQUE_TASK_TWO.\n\n## Task 1: First thing\n\nFirst body UNIQUE_TASK_ONE.",
+    )
+    source.write_bytes(reordered)
+    digest = _digest(reordered)
+    companion.write_text(
+        companion.read_text(encoding="utf-8").replace(_digest(original), digest),
+        encoding="utf-8",
+    )
+    result = validate_html(tmp_path, source, companion)
+    assert "source-text" in _violation_codes(result)
+    assert any("reordered" in item["message"] for item in result["violations"])  # type: ignore[index]
+
+
+def test_invalid_digest_and_language_are_separate_structured_violations(
+    tmp_path: Path,
+) -> None:
+    source, companion = _copy_fixture(
+        tmp_path, "spec", "2026-01-01-example-design"
+    )
+    html = companion.read_text(encoding="utf-8")
+    html = html.replace('lang="en"', 'lang="und"').replace(
+        _digest(source.read_bytes()), "sha256:" + "0" * 64
+    )
+    companion.write_text(html, encoding="utf-8")
+    result = validate_html(tmp_path, source, companion)
+    assert {"digest-mismatch", "language"} <= _violation_codes(result)
+
+
+def test_irregular_heading_levels_only_emit_warnings(tmp_path: Path) -> None:
+    source, _companion = _copy_fixture(tmp_path, "spec", "irregular-headings")
+    result = validate_html(tmp_path, source)
+    assert result["decision"] == "allow"
+    warning_codes = {item["code"] for item in result["warnings"]}  # type: ignore[index]
+    assert {"multiple-h1", "skipped-heading-level"} <= warning_codes
