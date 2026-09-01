@@ -511,6 +511,7 @@ _MD_FENCE_OPEN_RE = re.compile(r"^( {0,3})(`{3,}|~{3,})(.*)$")
 _MD_FENCE_CLOSE_RE = re.compile(r"^( {0,3})(`{3,}|~{3,})[ \t]*$")
 _MD_HEADING_RE = re.compile(r"^ {0,3}(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$")
 _MD_TASK_RE = re.compile(r"^## Task (\d+):[ \t]*(.*)$")
+_MD_CODE_SPAN_RE = re.compile(r"(?<!\\)(`+)(.+?)(?<!`)\1(?!`)")
 _MD_REFERENCE_RE = re.compile(r"^ {0,3}\[[^\]]+\]:\s+\S+")
 _MD_TABLE_SEPARATOR_RE = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$")
 _MD_LINK_RE = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")
@@ -794,17 +795,17 @@ def _normal_text(text: str) -> str:
     return " ".join(text.split()).casefold()
 
 
-def _markdown_inline_text(line: str) -> str:
+def _markdown_inline_text(line: str, *, include_code: bool = True) -> str:
     code_spans: list[str] = []
 
-    def protect_code_span(match: re.Match[str]) -> str:
+    def protect_code(match: re.Match[str]) -> str:
         content = match.group(2)
-        if len(content) >= 2 and content.startswith(" ") and content.endswith(" ") and content.strip():
+        if len(content) >= 2 and content[0] == " " and content[-1] == " " and content.strip():
             content = content[1:-1]
         code_spans.append(content)
         return f"\x00code{len(code_spans) - 1}\x00"
 
-    line = re.sub(r"(`+)([^`\r\n]*?)\1", protect_code_span, line)
+    line = _MD_CODE_SPAN_RE.sub(protect_code, line)
     line = _MD_AUTOLINK_RE.sub(r"\1", line)
     raw_tags: list[str] = []
 
@@ -819,8 +820,12 @@ def _markdown_inline_text(line: str) -> str:
     line = re.sub(r"\*\*|__|~~", "", line)
     line = re.sub(r"(?<!\w)[*_](?=\w)|(?<=\w)[*_](?!\w)", "", line)
     line = re.sub(r"\\([\\`*{}\[\]()#+.!_>~-])", r"\1", line)
-    line = re.sub(r"\x00code(\d+)\x00", lambda match: code_spans[int(match.group(1))], line)
-    return re.sub(r"\x00raw(\d+)\x00", lambda match: raw_tags[int(match.group(1))], line)
+    line = re.sub(r"\x00raw(\d+)\x00", lambda match: raw_tags[int(match.group(1))], line)
+    return re.sub(
+        r"\x00code(\d+)\x00",
+        lambda match: code_spans[int(match.group(1))] if include_code else " ",
+        line,
+    )
 
 
 def _markdown_link_destinations(markdown: str) -> list[str]:
@@ -885,7 +890,12 @@ def _markdown_link_destinations(markdown: str) -> list[str]:
     return destinations
 
 
-def _markdown_visible_text(markdown: str, *, include_fenced_code: bool = True) -> str:
+def _markdown_visible_text(
+    markdown: str,
+    *,
+    include_fenced_code: bool = True,
+    include_inline_code: bool = True,
+) -> str:
     fragments: list[str] = []
     fence_marker: str | None = None
     fence_length = 0
@@ -915,7 +925,7 @@ def _markdown_visible_text(markdown: str, *, include_fenced_code: bool = True) -
         line = re.sub(r"^ {0,3}\[[ xX]\][ \t]+", "", line)
         line = re.sub(r"^ {0,3}#{1,6}[ \t]+", "", line)
         line = line.replace("|", " ") if "|" in line else line
-        fragments.append(_markdown_inline_text(line))
+        fragments.append(_markdown_inline_text(line, include_code=include_inline_code))
     return "\n".join(fragments)
 
 
@@ -1025,8 +1035,11 @@ def _relative_resource(root: Path, html_path: Path, value: str) -> str | None:
 
 
 def _language_from_source(markdown: str) -> str | None:
-    markdown = re.sub(r"`+[^`\r\n]*`+", " ", markdown)
-    prose = _markdown_visible_text(markdown, include_fenced_code=False)
+    prose = _markdown_visible_text(
+        markdown,
+        include_fenced_code=False,
+        include_inline_code=False,
+    )
     prose = re.sub(r"</?[A-Za-z][^>]*>", " ", prose)
     if re.search(r"[\u3040-\u30ff]", prose):
         return "ja"
@@ -1555,16 +1568,24 @@ def _target_role(root: Path, raw_path: str) -> tuple[Target, str] | None:
 def check_freshness(
     repo_root: PathInput,
     changes: Iterable[GitChange],
+    bootstrap_paths: Iterable[PathInput] = (),
     file_contents: Mapping[str, bytes] | None = None,
 ) -> PolicyResult:
     """Check changed target pairs using current source and companion bytes.
 
     ``changes`` contains only Git status information. It identifies which pairs
     need checking; ``validate_html`` supplies all freshness and document
-    evidence from the current checkout.
+    evidence from the current checkout. ``bootstrap_paths`` explicitly permits
+    HTML-only migration for the named Target Markdown documents.
     """
 
     root = _repository_root(repo_root)
+    bootstrap = _permission_paths(
+        root,
+        bootstrap_paths,
+        label="bootstrap_paths",
+        require="source",
+    )
     try:
         change_values = list(changes)
     except TypeError as exc:
@@ -1664,6 +1685,19 @@ def check_freshness(
             )
             continue
         if pair.roles != {"source", "companion"}:
+            if pair.roles == {"companion"} and source_relative in bootstrap:
+                validation = validate_html(
+                    root,
+                    target.source_path,
+                    target.companion_path,
+                    file_contents=file_contents,
+                )
+                expected_digests.update(
+                    validation["expected_digests"]  # type: ignore[arg-type]
+                )
+                violations.extend(validation["violations"])  # type: ignore[arg-type]
+                warnings.extend(validation["warnings"])  # type: ignore[arg-type]
+                continue
             if pair.roles == {"source"}:
                 code = "markdown-only"
                 message = (

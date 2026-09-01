@@ -1,17 +1,24 @@
 <!DOCTYPE html>
-<html lang="und">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src &#x27;none&#x27;; img-src &#x27;self&#x27; data:; style-src &#x27;self&#x27;; base-uri &#x27;none&#x27;; form-action &#x27;none&#x27;; frame-ancestors &#x27;none&#x27;">
+<meta name="sdd-source-digest" content="sha256:b73c85e56c1d7efab234f11035a7efab57df2fe2dc20f1cc86e2a51fc1758c5c">
 <title>Stacked PR review-fix</title>
 <link rel="stylesheet" href="../assets/sdd.css">
 </head>
-<body>
-<header>
-<p>Spec</p>
+<body data-document-kind="spec">
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="document-header" data-document-kind="spec">
+<p class="document-kind">Spec</p>
+</header>
+<div class="document-layout">
+<aside class="document-outline" aria-labelledby="outline-label">
+<details open>
+<summary id="outline-label">On this page</summary>
 <nav aria-label="On this page">
-<ul>
+<ol>
 <li><a href="#problem">Problem</a></li>
 <li><a href="#goals">Goals</a></li>
 <li><a href="#non-goals">Non-goals</a></li>
@@ -25,10 +32,11 @@
 <li><a href="#consuming-paths">Consuming paths</a></li>
 <li><a href="#defaults-and-negative-requirements">Defaults and negative requirements</a></li>
 <li><a href="#success">Success</a></li>
-</ul>
+</ol>
 </nav>
-</header>
-<main>
+</details>
+</aside>
+<main id="content" tabindex="-1">
 <h1 id="stacked-pr-review-fix">Stacked PR review-fix</h1>
 <p><strong>Classification:</strong> architectural</p>
 <p><strong>Chosen approach:</strong> Add pipeline skill <code>sdd-review-fix</code> and an attach path on <code>using-git-worktrees</code>. Do not spread the loop across <code>sdd-finish</code> and <code>receiving-code-review</code>. Do not keep finish option 4 open as a review session.</p>
@@ -170,5 +178,6 @@
 </section>
 
 </main>
+</div>
 </body>
 </html>

@@ -236,6 +236,7 @@
 </table>
 </section>
 <article class="plan-task" data-task-number="1">
+<div class="task-rail" aria-hidden="true"><span class="task-number">01</span></div>
 <h2 id="task-1-implement-target-resolution-digests-and-edit-permissions">Task 1: Implement target resolution, digests, and edit permissions</h2>
 <p><strong>Files:</strong></p>
 <ul>
@@ -261,7 +262,7 @@
 </code></pre>
 <p><code>decision</code> is <code>allow</code> or <code>deny</code>; <code>paths</code> is repository-relative and ordered; <code>expected_digests</code> is present for affected companions and empty otherwise.</p>
 </li>
-<li><p>Implement <code>check_edit(repo_root, paths, bootstrap_paths=())</code> with these exact decisions: unrelated edits allow; a Target Markdown edit allows and reports its companion plus current digest; a single operation containing both paired paths denies; an HTML edit allows only when an existing companion has a valid digest different from the current Markdown digest; a missing or metadata-less companion denies unless its exact path is in <code>bootstrap_paths</code>; deletion or movement is handled later by the Git diff checker and is not silently allowed by the edit policy.</p>
+<li><p>Implement <code>check_edit(repo_root, paths, bootstrap_paths=(), new_source_paths=())</code> with these exact decisions: unrelated edits allow; a Target Markdown edit allows and reports its companion plus current digest; a single operation containing both paired paths denies; an HTML edit allows only when an existing companion has a valid digest different from the current Markdown digest; a missing or metadata-less companion denies unless its exact source is in <code>new_source_paths</code> from the preceding source-creation event or its exact path is in <code>bootstrap_paths</code>; deletion or movement is handled later by the Git diff checker and is not silently allowed by the edit policy.</p>
 </li>
 <li><p>Treat a newly created Target Markdown file as the source edit for its first separate HTML operation, while a missing companion for an existing Markdown file remains denied in normal mode.</p>
 </li>
@@ -275,6 +276,7 @@
 </ul>
 </article>
 <article class="plan-task" data-task-number="2">
+<div class="task-rail" aria-hidden="true"><span class="task-number">02</span></div>
 <h2 id="task-2-add-the-authored-html-validator">Task 2: Add the authored HTML validator</h2>
 <p><strong>Files:</strong></p>
 <ul>
@@ -299,6 +301,7 @@
 </ul>
 </article>
 <article class="plan-task" data-task-number="3">
+<div class="task-rail" aria-hidden="true"><span class="task-number">03</span></div>
 <h2 id="task-3-implement-the-html-docs-cli">Task 3: Implement the <code>html-docs</code> CLI</h2>
 <p><strong>Files:</strong></p>
 <ul>
@@ -308,7 +311,7 @@
 </ul>
 <p><strong>Steps:</strong></p>
 <ol>
-<li>Run from the consuming repository root and accept only these JSON stdin keys for <code>edit-check</code>: <code>operation</code>, <code>paths</code>, and optional <code>bootstrap_paths</code>. Require <code>operation</code> to be <code>edit</code>, normalize paths through the shared resolver, print one JSON result plus a newline, and map policy violations to exit code <code>1</code> and invalid input/execution failures to <code>2</code>.</li>
+<li>Run from the consuming repository root and accept only these JSON stdin keys for <code>edit-check</code>: <code>operation</code>, <code>paths</code>, and optional <code>bootstrap_paths</code> and <code>new_source_paths</code>. Require <code>operation</code> to be <code>edit</code>, normalize paths through the shared resolver, print one JSON result plus a newline, and map policy violations to exit code <code>1</code> and invalid input/execution failures to <code>2</code>.</li>
 <li>Implement <code>scripts/html-docs edit-check</code> as the sole host-facing permission command. It must not edit Markdown, HTML, CSS, configuration, or sidecar state.</li>
 <li>Implement <code>scripts/html-docs check --staged</code> by reading <code>git diff --cached --name-status --find-renames -z</code>, and <code>scripts/html-docs check --base REF</code> by reading <code>git diff --name-status --find-renames REF...HEAD -z</code>. Accept exactly one of <code>--staged</code>, <code>--base REF</code>, or explicit repository-relative paths for deterministic tests.</li>
 <li>For each affected Target pair, validate the authored HTML and source digest. Reject Markdown-only changes, HTML-only changes, stale pairs, missing pairs, mixed pair patches, one-sided rename/delete, and partial multi-document changes. Allow CSS-only and unrelated changes. Use Git status data only to decide affected pairs; use current bytes and HTML metadata as freshness evidence.</li>
@@ -323,6 +326,7 @@
 </ul>
 </article>
 <article class="plan-task" data-task-number="4">
+<div class="task-rail" aria-hidden="true"><span class="task-number">04</span></div>
 <h2 id="task-4-update-the-shared-css-and-migrate-authored-html">Task 4: Update the shared CSS and migrate authored HTML</h2>
 <p><strong>Files:</strong></p>
 <ul>
@@ -357,6 +361,7 @@
 </ul>
 </article>
 <article class="plan-task" data-task-number="5">
+<div class="task-rail" aria-hidden="true"><span class="task-number">05</span></div>
 <h2 id="task-5-add-cursor-claude-code-and-opencode-adapters">Task 5: Add Cursor, Claude Code, and OpenCode adapters</h2>
 <p><strong>Files:</strong></p>
 <ul>
@@ -382,6 +387,7 @@
 </ul>
 </article>
 <article class="plan-task" data-task-number="6">
+<div class="task-rail" aria-hidden="true"><span class="task-number">06</span></div>
 <h2 id="task-6-add-the-local-git-wrapper-and-ci-contract">Task 6: Add the local Git wrapper and CI contract</h2>
 <p><strong>Files:</strong></p>
 <ul>
@@ -403,6 +409,7 @@
 </ul>
 </article>
 <article class="plan-task" data-task-number="7">
+<div class="task-rail" aria-hidden="true"><span class="task-number">07</span></div>
 <h2 id="task-7-update-pack-instructions-and-remove-automatic-generation-language">Task 7: Update pack instructions and remove automatic-generation language</h2>
 <p><strong>Files:</strong></p>
 <ul>
@@ -422,11 +429,11 @@
 <p><strong>Tests:</strong></p>
 <ul>
 <li><code>git diff --check</code></li>
-<li><code>git grep -n &quot;render-docs&quot; -- skills README.md adapters scripts tests</code> must return no active-instruction or runtime reference after Task 8; historical <code>docs/superpowers/</code> references are excluded from this check.</li>
 <li><code>python3 scripts/html-docs doctor</code> reports the three explicit adapter registrations in a configured fixture repository.</li>
 </ul>
 </article>
 <article class="plan-task" data-task-number="8">
+<div class="task-rail" aria-hidden="true"><span class="task-number">08</span></div>
 <h2 id="task-8-retire-the-mechanical-renderer-and-finish-integration-coverage">Task 8: Retire the mechanical renderer and finish integration coverage</h2>
 <p><strong>Files:</strong></p>
 <ul>

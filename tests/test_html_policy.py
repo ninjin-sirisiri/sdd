@@ -10,6 +10,7 @@ from sddlib.html_policy import (
     DigestStatus,
     PathOutsideRepository,
     PolicyInputError,
+    _markdown_visible_text,
     _language_from_source,
     check_edit,
     parse_html,
@@ -96,6 +97,14 @@ def test_sha256_preserves_crlf_trailing_whitespace_and_final_newline(tmp_path: P
 
     path.write_bytes(content + b"\n")
     assert sha256_file(path) == hashlib.sha256(content + b"\n").hexdigest()
+
+
+def test_markdown_visible_text_preserves_inline_code_contents() -> None:
+    visible = _markdown_visible_text(
+        "An `_Avoid_` path `scripts/_vendor/mistune/` is documented.\n"
+    )
+
+    assert visible == "An _Avoid_ path scripts/_vendor/mistune/ is documented."
 
 
 @pytest.mark.parametrize(
