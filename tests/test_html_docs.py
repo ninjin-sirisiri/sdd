@@ -331,6 +331,32 @@ def test_check_base_reads_the_requested_three_dot_diff(tmp_path: Path) -> None:
     assert result(process)["decision"] == "allow"
 
 
+def test_check_base_allows_explicit_bootstrap_for_html_only_migration(
+    tmp_path: Path,
+) -> None:
+    init_repo(tmp_path)
+    source, companion = copy_fixture(tmp_path, "glossary", "CONTEXT")
+    companion.write_text("<html>\n</html>\n", encoding="utf-8")
+    commit_all(tmp_path, "legacy companion")
+    base = git(tmp_path, "rev-parse", "HEAD").strip()
+    companion.write_bytes((FIXTURES / "glossary" / "CONTEXT.html").read_bytes())
+    commit_all(tmp_path, "bootstrap authored companion")
+
+    process = run_cli(
+        tmp_path,
+        "check",
+        "--base",
+        base,
+        "--bootstrap",
+        source.relative_to(tmp_path).as_posix(),
+    )
+
+    assert process.returncode == 0
+    checked = result(process)
+    assert checked["decision"] == "allow"
+    assert checked["violations"] == []
+
+
 def test_check_rejects_mixed_source_modes_and_missing_mode(tmp_path: Path) -> None:
     for args in (
         ("--staged", "--paths", "CONTEXT.md"),

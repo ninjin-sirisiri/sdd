@@ -1398,15 +1398,23 @@ def _target_role(root: Path, raw_path: str) -> tuple[Target, str] | None:
 def check_freshness(
     repo_root: PathInput,
     changes: Iterable[GitChange],
+    bootstrap_paths: Iterable[PathInput] = (),
 ) -> PolicyResult:
     """Check changed target pairs using current source and companion bytes.
 
     ``changes`` contains only Git status information. It identifies which pairs
     need checking; ``validate_html`` supplies all freshness and document
-    evidence from the current checkout.
+    evidence from the current checkout. ``bootstrap_paths`` explicitly permits
+    HTML-only migration for the named Target Markdown documents.
     """
 
     root = _repository_root(repo_root)
+    bootstrap = _permission_paths(
+        root,
+        bootstrap_paths,
+        label="bootstrap_paths",
+        require="source",
+    )
     try:
         change_values = list(changes)
     except TypeError as exc:
@@ -1499,6 +1507,16 @@ def check_freshness(
             )
             continue
         if pair.roles != {"source", "companion"}:
+            if pair.roles == {"companion"} and source_relative in bootstrap:
+                validation = validate_html(
+                    root, target.source_path, target.companion_path
+                )
+                expected_digests.update(
+                    validation["expected_digests"]  # type: ignore[arg-type]
+                )
+                violations.extend(validation["violations"])  # type: ignore[arg-type]
+                warnings.extend(validation["warnings"])  # type: ignore[arg-type]
+                continue
             if pair.roles == {"source"}:
                 code = "markdown-only"
                 message = (

@@ -93,13 +93,16 @@ def _edit_check(root: Path) -> tuple[dict[str, object], int]:
     return policy_result, 0 if policy_result["decision"] == "allow" else 1
 
 
-def _parse_check_args(args: list[str]) -> tuple[str, str | None, list[str]]:
+def _parse_check_args(
+    args: list[str],
+) -> tuple[str, str | None, list[str], list[str]]:
     if not args:
         _fail("check requires exactly one of --staged, --base REF, or explicit paths")
 
     mode: str | None = None
     reference: str | None = None
     explicit: list[str] = []
+    bootstrap: list[str] = []
     index = 0
     while index < len(args):
         argument = args[index]
@@ -126,6 +129,15 @@ def _parse_check_args(args: list[str]) -> tuple[str, str | None, list[str]]:
                 _fail("check accepts exactly one source mode")
             explicit.extend(tail)
             break
+        elif argument == "--bootstrap":
+            if mode not in {"staged", "base"}:
+                _fail("--bootstrap requires --staged or --base REF")
+            tail = args[index + 1 :]
+            if not tail or any(item.startswith("-") for item in tail):
+                _fail("--bootstrap requires at least one Target Markdown path")
+            bootstrap.extend(tail)
+            index = len(args)
+            break
         elif argument.startswith("-"):
             _fail(f"unknown check option: {argument}")
         else:
@@ -140,7 +152,7 @@ def _parse_check_args(args: list[str]) -> tuple[str, str | None, list[str]]:
         mode = "paths"
     if mode in {"staged", "base"} and index + 1 < len(args):
         _fail("check accepts exactly one source mode")
-    return mode, reference, explicit
+    return mode, reference, explicit, bootstrap
 
 
 def _parse_git_changes(output: bytes) -> list[GitChange]:
@@ -200,9 +212,9 @@ def _git_changes(root: Path, mode: str, reference: str | None, paths: list[str])
 
 
 def _check(root: Path, args: list[str]) -> tuple[dict[str, object], int]:
-    mode, reference, paths = _parse_check_args(args)
+    mode, reference, paths, bootstrap = _parse_check_args(args)
     changes = _git_changes(root, mode, reference, paths)
-    policy_result = check_freshness(root, changes)
+    policy_result = check_freshness(root, changes, bootstrap)
     return policy_result, 0 if policy_result["decision"] == "allow" else 1
 
 
