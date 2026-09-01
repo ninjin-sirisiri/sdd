@@ -497,6 +497,7 @@ _MD_FENCE_OPEN_RE = re.compile(r"^( {0,3})(`{3,}|~{3,})(.*)$")
 _MD_FENCE_CLOSE_RE = re.compile(r"^( {0,3})(`{3,}|~{3,})[ \t]*$")
 _MD_HEADING_RE = re.compile(r"^ {0,3}(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$")
 _MD_TASK_RE = re.compile(r"^## Task (\d+):[ \t]*(.*)$")
+_MD_CODE_SPAN_RE = re.compile(r"(?<!\\)(`+)(.+?)(?<!`)\1(?!`)")
 _MD_REFERENCE_RE = re.compile(r"^ {0,3}\[[^\]]+\]:\s+\S+")
 _MD_TABLE_SEPARATOR_RE = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$")
 _MD_LINK_RE = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")
@@ -770,7 +771,17 @@ def _normal_text(text: str) -> str:
     return " ".join(text.split()).casefold()
 
 
-def _markdown_inline_text(line: str) -> str:
+def _markdown_inline_text(line: str, *, include_code: bool = True) -> str:
+    code_spans: list[str] = []
+
+    def protect_code(match: re.Match[str]) -> str:
+        content = match.group(2)
+        if len(content) >= 2 and content[0] == " " and content[-1] == " " and content.strip():
+            content = content[1:-1]
+        code_spans.append(content)
+        return f"\x00code{len(code_spans) - 1}\x00"
+
+    line = _MD_CODE_SPAN_RE.sub(protect_code, line)
     line = _MD_AUTOLINK_RE.sub(r"\1", line)
     raw_tags: list[str] = []
 
@@ -785,10 +796,20 @@ def _markdown_inline_text(line: str) -> str:
     line = re.sub(r"\*\*|__|~~", "", line)
     line = re.sub(r"(?<!\w)[*_](?=\w)|(?<=\w)[*_](?!\w)", "", line)
     line = re.sub(r"\\([\\`*{}\[\]()#+.!_>~-])", r"\1", line)
-    return re.sub(r"\x00raw(\d+)\x00", lambda match: raw_tags[int(match.group(1))], line)
+    line = re.sub(r"\x00raw(\d+)\x00", lambda match: raw_tags[int(match.group(1))], line)
+    return re.sub(
+        r"\x00code(\d+)\x00",
+        lambda match: code_spans[int(match.group(1))] if include_code else " ",
+        line,
+    )
 
 
-def _markdown_visible_text(markdown: str, *, include_fenced_code: bool = True) -> str:
+def _markdown_visible_text(
+    markdown: str,
+    *,
+    include_fenced_code: bool = True,
+    include_inline_code: bool = True,
+) -> str:
     fragments: list[str] = []
     fence_marker: str | None = None
     fence_length = 0
@@ -818,7 +839,7 @@ def _markdown_visible_text(markdown: str, *, include_fenced_code: bool = True) -
         line = re.sub(r"^ {0,3}\[[ xX]\][ \t]+", "", line)
         line = re.sub(r"^ {0,3}#{1,6}[ \t]+", "", line)
         line = line.replace("|", " ") if "|" in line else line
-        fragments.append(_markdown_inline_text(line))
+        fragments.append(_markdown_inline_text(line, include_code=include_inline_code))
     return "\n".join(fragments)
 
 
@@ -928,8 +949,11 @@ def _relative_resource(root: Path, html_path: Path, value: str) -> str | None:
 
 
 def _language_from_source(markdown: str) -> str | None:
-    prose = _markdown_visible_text(markdown, include_fenced_code=False)
-    prose = re.sub(r"`[^`]*`", " ", prose)
+    prose = _markdown_visible_text(
+        markdown,
+        include_fenced_code=False,
+        include_inline_code=False,
+    )
     prose = re.sub(r"</?[A-Za-z][^>]*>", " ", prose)
     if re.search(r"[\u3040-\u30ff]", prose):
         return "ja"

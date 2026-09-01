@@ -25,12 +25,12 @@
 <li><a href="#task-2-sdd-review-fix-skill">Task 2: sdd-review-fix skill</a></li>
 <li><a href="#task-3-route-finish-pointer-and-readme">Task 3: Route, finish pointer, and README</a>
 <ol>
-<li><a href="#skillssddskillmd">`skills/sdd/SKILL.md`</a></li>
-<li><a href="#skillssdd-finishskillmd">`skills/sdd-finish/SKILL.md`</a></li>
-<li><a href="#skillsreceiving-code-reviewskillmd">`skills/receiving-code-review/SKILL.md`</a></li>
-<li><a href="#skillssdd-executeskillmd">`skills/sdd-execute/SKILL.md`</a></li>
-<li><a href="#readmemd">`README.md`</a></li>
-<li><a href="#docssuperpowersspecs2026-08-28-sdd-framework-designmd">`docs/superpowers/specs/2026-08-28-sdd-framework-design.md`</a></li>
+<li><a href="#skillssddskillmd"><code>skills/sdd/SKILL.md</code></a></li>
+<li><a href="#skillssdd-finishskillmd"><code>skills/sdd-finish/SKILL.md</code></a></li>
+<li><a href="#skillsreceiving-code-reviewskillmd"><code>skills/receiving-code-review/SKILL.md</code></a></li>
+<li><a href="#skillssdd-executeskillmd"><code>skills/sdd-execute/SKILL.md</code></a></li>
+<li><a href="#readmemd"><code>README.md</code></a></li>
+<li><a href="#docssuperpowersspecs2026-08-28-sdd-framework-designmd"><code>docs/superpowers/specs/2026-08-28-sdd-framework-design.md</code></a></li>
 </ol>
 </li>
 </ol>
@@ -462,7 +462,7 @@ git commit -m &quot;Add sdd-review-fix so stacked PR reviews update stack heads 
 <div class="task-rail" aria-hidden="true"><span class="task-number">03</span></div>
 <h2 id="task-3-route-finish-pointer-and-readme">Task 3: Route, finish pointer, and README</h2>
 <p>Keep each edit surgical. Do not rewrite whole files.</p>
-<h3 id="skillssddskillmd"><code>`skills/sdd/SKILL.md`</code></h3>
+<h3 id="skillssddskillmd"><code>skills/sdd/SKILL.md</code></h3>
 <p>In the frontmatter <code>description</code>, change <code>sdd-design, sdd-plan, sdd-execute, sdd-goal, or sdd-finish</code> to <code>sdd-design, sdd-plan, sdd-execute, sdd-goal, sdd-finish, or sdd-review-fix</code>.</p>
 <p>In the Route table, after the <code>sdd-finish</code> row, add:</p>
 <pre><code class="language-markdown">| GitHub review on a stacked PR (`sdd-stack/task-N`) | sdd-review-fix |
@@ -471,19 +471,19 @@ git commit -m &quot;Add sdd-review-fix so stacked PR reviews update stack heads 
 <pre><code class="language-markdown">| Isolated workspace / git worktree (after the human said yes) | using-git-worktrees isolate |
 | Checkout of an existing stack branch for a stacked-PR review | using-git-worktrees attach (from sdd-review-fix) |
 </code></pre>
-<h3 id="skillssdd-finishskillmd"><code>`skills/sdd-finish/SKILL.md`</code></h3>
+<h3 id="skillssdd-finishskillmd"><code>skills/sdd-finish/SKILL.md</code></h3>
 <p>Immediately after the paragraph that starts <code>If the command exits non-zero, report any PR URLs</code> (option 4), add:</p>
 <pre><code class="language-markdown">After option 4 succeeds, later GitHub review fixes use sdd-review-fix. Land stacked PRs from the bottom on GitHub. Do not merge, restack, or create review worktrees from finish.
 </code></pre>
-<h3 id="skillsreceiving-code-reviewskillmd"><code>`skills/receiving-code-review/SKILL.md`</code></h3>
+<h3 id="skillsreceiving-code-reviewskillmd"><code>skills/receiving-code-review/SKILL.md</code></h3>
 <p>Immediately after the <code>**Core principle:**</code> line, add:</p>
 <pre><code class="language-markdown">If the pull request head is a stack branch (`sdd-stack/task-N`), git operations (worktree, commit, push) are sdd-review-fix. This skill does not create branches.
 </code></pre>
-<h3 id="skillssdd-executeskillmd"><code>`skills/sdd-execute/SKILL.md`</code></h3>
+<h3 id="skillssdd-executeskillmd"><code>skills/sdd-execute/SKILL.md</code></h3>
 <p>Replace the line <code>Do not use using-git-worktrees for Task implementer subagents. </code>[WORKDIR]<code> is this chosen checkout.</code> with:</p>
 <pre><code class="language-markdown">Do not use using-git-worktrees for Task implementer subagents. Do not attach review worktrees. Isolate only, and only after the human said yes. `[WORKDIR]` is this chosen checkout.
 </code></pre>
-<h3 id="readmemd"><code>`README.md`</code></h3>
+<h3 id="readmemd"><code>README.md</code></h3>
 <p>In Claude Code invoke list, add <code>/sdd:sdd-review-fix</code>. In Cursor invoke sentence, add <code>/sdd-review-fix</code>.</p>
 <p>After the pipeline paragraph about <code>sdd-finish</code>, add:</p>
 <pre><code class="language-markdown">After stacked PRs exist, GitHub review fixes use `sdd-review-fix` (existing `sdd-stack/task-N` only). Land from the bottom on GitHub.
@@ -499,7 +499,7 @@ git commit -m &quot;Add sdd-review-fix so stacked PR reviews update stack heads 
 <p>In Manual check, add item 4:</p>
 <pre><code class="language-markdown">4. After stacked PRs exist, `/sdd-review-fix` (Claude Code: `/sdd:sdd-review-fix`) is visible. Confirm the skill forbids `-b`, `gh pr merge`, and `stack-prs` re-run.
 </code></pre>
-<h3 id="docssuperpowersspecs2026-08-28-sdd-framework-designmd"><code>`docs/superpowers/specs/2026-08-28-sdd-framework-design.md`</code></h3>
+<h3 id="docssuperpowersspecs2026-08-28-sdd-framework-designmd"><code>docs/superpowers/specs/2026-08-28-sdd-framework-design.md</code></h3>
 <p>Immediately after the sentence <code>ブランチ名は </code>sdd-stack/task-N<code>。Task 1 の PR の base は確認済み base branch。Task N の PR の base は </code>sdd-stack/task-(N-1)<code>。途中失敗時は、作れた PR の URL と未作成 Task を報告する。</code> add:</p>
 <pre><code class="language-markdown">公開後の GitHub レビュー修正は `docs/sdd/specs/2026-09-01-stacked-pr-review-fix-design.md` が正。既存の stack branch に attach し、restack しない。
 </code></pre>
