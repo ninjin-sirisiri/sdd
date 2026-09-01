@@ -26,11 +26,10 @@ if [ -n "${SDD_PRE_COMMIT_DELEGATE:-}" ]; then
     exit $?
 fi
 
-git_dir=$(git rev-parse --git-dir 2>/dev/null) || {
-    printf '%s\n' 'sdd-html-pre-commit: cannot resolve the Git directory.' >&2
+existing_hook=$(git rev-parse --git-path hooks/pre-commit.sdd-existing 2>/dev/null) || {
+    printf '%s\n' 'sdd-html-pre-commit: cannot resolve the existing hook path.' >&2
     exit 2
 }
-existing_hook="$git_dir/hooks/pre-commit.sdd-existing"
 if [ -f "$existing_hook" ]; then
     "$existing_hook" "$@"
     exit $?

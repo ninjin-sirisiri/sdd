@@ -62,6 +62,7 @@ def run_wrapper(
 ) -> subprocess.CompletedProcess[str]:
     environment = os.environ.copy()
     environment["SDD_PACK_ROOT"] = str(ROOT)
+    environment["GIT_CONFIG_GLOBAL"] = os.devnull
     environment.pop("SDD_PRE_COMMIT_DELEGATE", None)
     if extra_env:
         environment.update(extra_env)
@@ -154,6 +155,33 @@ def test_existing_delegate_passes_arguments_and_status(tmp_path: Path) -> None:
         f"cwd={tmp_path}",
         "arg=--hook-arg",
         "arg=value with spaces",
+    ]
+
+
+def test_existing_delegate_is_found_in_a_linked_worktree_with_core_hooks_path(
+    tmp_path: Path,
+) -> None:
+    make_repo(tmp_path)
+    linked = tmp_path / "linked"
+    git(tmp_path, "worktree", "add", str(linked), "HEAD")
+    hooks_path = tmp_path / ".githooks"
+    git(tmp_path, "config", "--local", "core.hooksPath", str(hooks_path))
+    hook = hooks_path / "pre-commit.sdd-existing"
+    marker = tmp_path / "linked-marker"
+    hook.parent.mkdir()
+    write_delegate(hook, 0, marker)
+
+    process = run_wrapper(
+        tmp_path,
+        "--linked",
+        extra_env=delegate_environment(marker),
+        cwd=linked,
+    )
+
+    assert process.returncode == 0
+    assert marker.read_text(encoding="utf-8").splitlines() == [
+        f"cwd={linked}",
+        "arg=--linked",
     ]
 
 
