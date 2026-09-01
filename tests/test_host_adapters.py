@@ -94,14 +94,18 @@ def test_stdin_fixtures_map_host_decisions(
 def test_stdin_fixtures_preserve_bootstrap_permissions(
     tmp_path: Path, hook: Path, fixture: str, key: str
 ) -> None:
-    repo = make_repo(tmp_path, companion=False)
+    repo = make_repo(tmp_path)
     host = "cursor" if hook == CURSOR_HOOK else "claude"
     payload = json.loads(
         (ROOT / "adapters" / host / "fixtures" / fixture).read_text(encoding="utf-8")
     )
     result = run_hook(hook, repo, payload)
-    decision = result[key] if host == "cursor" else result[key]["permissionDecision"]
-    assert decision == "allow"
+    if host == "cursor":
+        assert result[key] == "allow"
+    else:
+        output = result[key]
+        assert output["hookEventName"] == "PostToolUse"
+        assert output["additionalContext"] == "All requested HTML companions are valid."
 
 
 def test_cursor_write_pretool_marks_new_target_source() -> None:
