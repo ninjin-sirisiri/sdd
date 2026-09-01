@@ -1,40 +1,122 @@
 <!DOCTYPE html>
-<html lang="und">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src &#x27;none&#x27;; img-src &#x27;self&#x27; data:; style-src &#x27;self&#x27;; base-uri &#x27;none&#x27;; form-action &#x27;none&#x27;; frame-ancestors &#x27;none&#x27;">
+<meta http-equiv="Content-Security-Policy" content="default-src &#x27;none&#x27;; img-src &#x27;self&#x27; data:; style-src &#x27;self&#x27;; base-uri &#x27;none&#x27;; form-action &#x27;none&#x27;; frame-ancestors &#x27;none&#x27;; script-src &#x27;none&#x27;; connect-src &#x27;none&#x27;">
+<meta name="sdd-source-digest" content="sha256:5f0eec567517aed6665531d3debd4378f2c90bbd63ac8dbaa00b2d6256c5d951">
 <title>SDD</title>
 <link rel="stylesheet" href="docs/sdd/assets/sdd.css">
 </head>
-<body>
-<header>
-<p>Glossary</p>
-<nav aria-label="On this page">
-<ul>
-<li><a href="#terms">Terms</a></li>
-</ul>
-</nav>
+<body data-document-kind="glossary">
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="document-header">
+<p class="document-kind">Glossary</p>
 </header>
-<main>
+<div class="document-layout">
+<aside class="document-outline" aria-labelledby="outline-label">
+<details open>
+<summary id="outline-label">On this page</summary>
+<nav aria-label="Document sections">
+<ol>
+<li><a href="#terms">Terms</a></li>
+</ol>
+</nav>
+</details>
+</aside>
+<main id="content" tabindex="-1">
 <h1 id="sdd">SDD</h1>
 <p>Skill pack for spec-driven design, plans, isolated execution, and stacked PRs.</p>
-<section>
+<section id="terms-section">
 <h2 id="terms">Terms</h2>
-<p><strong>Implementation worktree</strong>:
-The optional isolated git checkout created before execute (or bounded TDD). At most one per plan. Its branch is not a stack branch.</p>
-<p><em>Avoid</em>: review worktree</p>
-<p><strong>Review worktree</strong>:
-A git worktree attached to an existing stack branch so that stacked PR can be updated in place.</p>
-<p><em>Avoid</em>: review branch, fix branch</p>
-<p><strong>Stack branch</strong>:
-The git ref <code>sdd-stack/task-N</code> that is the head of that task's stacked PR. Review fixes move this ref; they do not add another branch.</p>
-<p><em>Avoid</em>: worktree</p>
-<p><strong>Land</strong>:
-Merge stacked PRs from the bottom of the stack into the confirmed base branch, without rebasing or restacking descendants.</p>
-<p><em>Avoid</em>: restack</p>
+<dl>
+<div class="term-entry">
+<dt>Implementation worktree:</dt>
+<dd>
+<p>The optional isolated git checkout created before execute (or bounded TDD). At most one per plan. Its branch is not a stack branch.</p>
+<p class="avoid-terms"><strong>Avoid</strong>: review worktree</p>
+</dd>
+</div>
+<div class="term-entry">
+<dt>Review worktree:</dt>
+<dd>
+<p>A git worktree attached to an existing stack branch so that stacked PR can be updated in place.</p>
+<p class="avoid-terms"><strong>Avoid</strong>: review branch, fix branch</p>
+</dd>
+</div>
+<div class="term-entry">
+<dt>Stack branch:</dt>
+<dd>
+<p>The git ref <code>sdd-stack/task-N</code> that is the head of that task's stacked PR. Review fixes move this ref; they do not add another branch.</p>
+<p class="avoid-terms"><strong>Avoid</strong>: worktree</p>
+</dd>
+</div>
+<div class="term-entry">
+<dt>Land:</dt>
+<dd>
+<p>Merge stacked PRs from the bottom of the stack into the confirmed base branch, without rebasing or restacking descendants.</p>
+<p class="avoid-terms"><strong>Avoid</strong>: restack</p>
+</dd>
+</div>
+<div class="term-entry">
+<dt>Canonical Markdown:</dt>
+<dd>
+<p>The authoritative Markdown document from which the human-facing document artifact is derived.</p>
+<p class="avoid-terms"><strong>Avoid</strong>: HTML source, preview source</p>
+</dd>
+</div>
+<div class="term-entry">
+<dt>Agent-authored HTML:</dt>
+<dd>
+<p>A human-facing HTML artifact whose content structure and visual hierarchy are intentionally shaped by the agent rather than copied as a near-verbatim Markdown preview.</p>
+<p class="avoid-terms"><strong>Avoid</strong>: Markdown preview, mechanical conversion</p>
+</dd>
+</div>
+<div class="term-entry">
+<dt>Agent edit hook:</dt>
+<dd>
+<p>A host-level hook that observes or rejects an agent's file-edit operation to enforce the ordering between a canonical Markdown document and its Agent-authored HTML.</p>
+<p class="avoid-terms"><strong>Avoid</strong>: Git hook, commit hook</p>
+</dd>
+</div>
+<div class="term-entry">
+<dt>HTML freshness gate:</dt>
+<dd>
+<p>A repository-level check that prevents a change from being committed when an edited Canonical Markdown document lacks its current Agent-authored HTML companion.</p>
+<p class="avoid-terms"><strong>Avoid</strong>: preview check, render hook</p>
+</dd>
+</div>
+<div class="term-entry">
+<dt>Target document:</dt>
+<dd>
+<p>A Canonical Markdown document at <code>CONTEXT.md</code>, <code>docs/adr/</code>, <code>docs/sdd/specs/</code>, or <code>docs/sdd/plans/</code> whose Agent-authored HTML companion is governed by the SDD synchronization rules.</p>
+<p class="avoid-terms"><strong>Avoid</strong>: arbitrary Markdown, source document</p>
+</dd>
+</div>
+<div class="term-entry">
+<dt>Document digest:</dt>
+<dd>
+<p>The SHA-256 identity of a Target document's exact content, recorded with its Agent-authored HTML to establish that the two artifacts correspond.</p>
+<p class="avoid-terms"><strong>Avoid</strong>: file timestamp, commit-only freshness</p>
+</dd>
+</div>
+<div class="term-entry">
+<dt>HTML bootstrap:</dt>
+<dd>
+<p>An explicit first-time operation that creates Agent-authored HTML companions for existing Target documents without relaxing the normal Markdown-before-HTML edit order.</p>
+<p class="avoid-terms"><strong>Avoid</strong>: automatic backfill, preview generation</p>
+</dd>
+</div>
+<div class="term-entry">
+<dt>Edit-order guarantee:</dt>
+<dd>
+<p>A Target document must be successfully edited before its Agent-authored HTML may be edited, and one operation may not edit both artifacts.</p>
+<p class="avoid-terms"><strong>Avoid</strong>: atomic Markdown/HTML edit, HTML-first edit</p>
+</dd>
+</div>
+</dl>
 </section>
-
 </main>
+</div>
 </body>
 </html>

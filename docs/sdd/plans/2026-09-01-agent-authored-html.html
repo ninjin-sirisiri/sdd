@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src &#x27;none&#x27;; img-src &#x27;self&#x27; data:; style-src &#x27;self&#x27;; base-uri &#x27;none&#x27;; form-action &#x27;none&#x27;; frame-ancestors &#x27;none&#x27;; script-src &#x27;none&#x27;; connect-src &#x27;none&#x27;">
+<meta name="sdd-source-digest" content="sha256:5259aa2d510997923fbd1b704c3f3316b3338e1050afd3b0cb871197aa6b5b14">
+<title>Agent-authored HTML Implementation Plan</title>
+<link rel="stylesheet" href="../assets/sdd.css">
+</head>
+<body data-document-kind="plan">
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="document-header">
+<p class="document-kind">Plan</p>
+</header>
+<div class="document-layout">
+<aside class="document-outline" aria-labelledby="outline-label">
+<details open>
+<summary id="outline-label">On this page</summary>
+<nav aria-label="Document sections">
+<ol>
+<li><a href="#global-constraints">Global Constraints</a></li>
+<li><a href="#file-structure">File Structure</a></li>
+<li><a href="#task-1-implement-target-resolution-digests-and-edit-permissions">Task 1: Implement target resolution, digests, and edit permissions</a></li>
+<li><a href="#task-2-add-the-authored-html-validator">Task 2: Add the authored HTML validator</a></li>
+<li><a href="#task-3-implement-the-html-docs-cli">Task 3: Implement the html-docs CLI</a></li>
+<li><a href="#task-4-update-the-shared-css-and-migrate-authored-html">Task 4: Update the shared CSS and migrate authored HTML</a></li>
+<li><a href="#task-5-add-cursor-claude-code-and-opencode-adapters">Task 5: Add Cursor, Claude Code, and OpenCode adapters</a></li>
+<li><a href="#task-6-add-the-local-git-wrapper-and-ci-contract">Task 6: Add the local Git wrapper and CI contract</a></li>
+<li><a href="#task-7-update-pack-instructions-and-remove-automatic-generation-language">Task 7: Update pack instructions and remove automatic-generation language</a></li>
+<li><a href="#task-8-retire-the-mechanical-renderer-and-finish-integration-coverage">Task 8: Retire the mechanical renderer and finish integration coverage</a></li>
+</ol>
+</nav>
+</details>
+</aside>
+<main id="content" tabindex="-1">
+<h1 id="agent-authored-html-implementation-plan">Agent-authored HTML Implementation Plan</h1>
+<p class="metadata"><strong>Goal:</strong> Replace mechanical Markdown-to-HTML rendering with validated, agent-authored HTML companions while preserving Markdown as the canonical source.</p>
+<p class="metadata"><strong>Architecture:</strong> A stateless Python policy owns target resolution, exact byte digests, edit permissions, HTML validation, and Git freshness decisions. The <code>html-docs</code> CLI exposes that policy to thin Cursor, Claude Code, OpenCode, pre-commit, and CI adapters; agents author the final HTML and the shared CSS supplies the visual system.</p>
+<p class="metadata"><strong>Tech Stack:</strong> Python 3.11 standard library, POSIX shell, static semantic HTML, shared CSS, Cursor/Claude Code/OpenCode hook APIs, Git, and pytest with temporary repositories.</p>
+<p class="metadata"><strong>Spec:</strong> <code>docs/sdd/specs/2026-09-01-agent-authored-html-design.md</code></p>
+<section>
+<h2 id="global-constraints">Global Constraints</h2>
+<ul>
+<li>The Target documents are exactly:</li>
+<li><code>CONTEXT.md</code></li>
+<li><code>docs/adr/*.md</code></li>
+<li><code>docs/sdd/specs/*.md</code></li>
+<li><code>docs/sdd/plans/*.md</code></li>
+<li>Each Target document pairs with the adjacent file having the same relative path and stem and the <code>.html</code> suffix.</li>
+<li>The shared stylesheet is <code>docs/sdd/assets/sdd.css</code>.</li>
+<li>Other Markdown files are outside this synchronization contract.</li>
+<li>Markdown remains the source of truth.</li>
+<li>Agent-authored HTML is a human-facing companion whose structure and visual hierarchy are deliberately designed by the agent, not copied from a generic Markdown preview.</li>
+<li><code>scripts/sddlib/html_policy.py</code> is the single source for:</li>
+<li>Target document and adjacent companion resolution.</li>
+<li>Exact UTF-8 byte SHA-256 digests.</li>
+<li>Normal and bootstrap edit permissions.</li>
+<li>HTML metadata, security, structural, and text-fidelity validation.</li>
+<li>Staged-tree and PR-diff freshness checks.</li>
+<li>Host-neutral decisions, messages, affected paths, and exit statuses.</li>
+<li>The <code>scripts/html-docs</code> CLI exposes <code>edit-check</code>, <code>check</code>, <code>bootstrap</code>, and <code>doctor</code>.</li>
+<li>It accepts JSON on stdin and returns JSON on stdout with <code>decision</code>, <code>message</code>, <code>paths</code>, and expected digest fields.</li>
+<li>Exit code <code>0</code> means allow or pass, <code>1</code> means a synchronization or document violation, and <code>2</code> means invalid arguments, unavailable configuration, or an execution failure.</li>
+<li>The adapters translate each host payload to the common CLI contract and translate the result back to the host's allow / deny / feedback format.</li>
+<li>They do not implement digest or document logic themselves.</li>
+<li>Each adapter is explicitly enabled by the user; <code>html-docs doctor</code> reports missing, disabled, or incompatible registration.</li>
+<li>The local pre-commit wrapper passes the staged tree to <code>html-docs check</code>.</li>
+<li>CI passes the PR base reference and checkout tree to the same command.</li>
+<li>The pack provides provider-neutral commands and examples, not an automatically installed workflow.</li>
+<li>Existing pre-commit hooks are preserved and invoked by the wrapper rather than silently replaced.</li>
+<li>A Target Markdown edit succeeds before its HTML companion can be edited.</li>
+<li>A single tool call or patch cannot edit both files, even when its final content would be valid.</li>
+<li>HTML-only changes are rejected, including a visual-only design edit when the source digest is already current.</li>
+<li>Multiple Markdown edits may occur before one HTML update; the HTML must use the final digest.</li>
+<li>A Markdown edit after an HTML update makes that HTML stale again.</li>
+<li>Shared CSS may be edited without changing the Markdown or HTML digest.</li>
+<li>Deletion or movement is valid only when Markdown and its companion move or delete together.</li>
+<li>Multiple Target documents are checked independently, and a partial set fails the commit.</li>
+<li>Every companion contains a language-specific <code>html</code> element, charset, viewport, title, restrictive CSP, exactly one <code>sdd-source-digest</code> meta, and a shared CSS link.</li>
+<li>The body starts with a skip link.</li>
+<li>A <code>header</code> identifies the document kind.</li>
+<li>A <code>main</code> element has the content target ID and is programmatically focusable.</li>
+<li>Data tables include a caption and scoped header cells; when Markdown lacks a caption, the agent may derive a descriptive caption from the nearby heading and column labels without adding facts.</li>
+<li>When h2 or h3 headings exist, a named navigation outline is provided in an <code>aside</code>.</li>
+<li>It is sticky where the viewport permits and falls back to normal flow.</li>
+<li>On narrow screens the outline is exposed through native <code>details</code>; no JavaScript is required.</li>
+<li>When there are no h2 or h3 headings, no empty <code>nav</code> or <code>aside</code> is emitted.</li>
+<li>The agent preserves source facts, visible body content, headings, code, lists, tables, links, and their reading order.</li>
+<li>It may add navigation, skip-link text, document-kind labels, accessibility labels, and metadata, but may not summarize, omit, invent, or reorder source content.</li>
+<li>Glossary terms use <code>dl</code>, <code>dt</code>, and <code>dd</code>; an <code>_Avoid_</code> paragraph stays inside the related <code>dd</code> as a labeled secondary paragraph.</li>
+<li>An ADR remains a compact decision article and does not gain headings that are absent from Markdown.</li>
+<li>Spec h2 headings become semantic section blocks.</li>
+<li>Each plan <code>## Task N:</code> becomes an independent article with a visually prominent number and title, a left rule or number rail, and no invented status.</li>
+<li>Labeled lead paragraphs such as <code>Goal</code>, <code>Architecture</code>, and <code>Classification</code> become metadata / lead blocks without changing their values.</li>
+<li>Unknown source shapes use ordinary semantic HTML.</li>
+<li>Source heading levels are retained, including multiple h1 or skipped levels; those conditions produce warnings rather than automatic corrections.</li>
+<li>Heading IDs are stable slugs derived from heading text, with occurrence-order suffixes for duplicates, and all outline links resolve to those IDs.</li>
+<li>The shared system uses system fonts, relative type and spacing tokens, semantic light / dark colors, and a 60--75ch main reading measure.</li>
+<li>Heading rank is expressed by type scale and spacing, while section boundaries use whitespace, rules, and restrained accents.</li>
+<li>Document kind changes label, accent, and semantic block treatment, not the entire palette, font, or layout.</li>
+<li>Gradients, excessive shadows, all-block card layouts, color-only hierarchy, external fonts, and required animation are prohibited.</li>
+<li>Text and boundaries meet accessible contrast.</li>
+<li>Tables and long code scroll locally rather than causing page-wide horizontal overflow.</li>
+<li>The layout supports browser zoom and <code>prefers-reduced-motion</code>.</li>
+<li>The agent selects the dominant prose language for <code>html lang</code> and generated UI labels.</li>
+<li>Code and proper names do not determine the language.</li>
+<li><code>und</code> is not accepted for a Target document.</li>
+<li>Only static semantic HTML and same-repository resources are allowed.</li>
+<li>Scripts, event attributes, executable inline content, frames, external stylesheets, external fonts, and network-dependent resources are prohibited.</li>
+<li>The restrictive CSP denies all unspecified sources and permits only the approved local stylesheet and local / data images.</li>
+<li>Raw HTML from Markdown is represented as text rather than trusted executable markup.</li>
+<li>The digest is computed over the exact Markdown file bytes, including line endings, trailing whitespace, and the final newline.</li>
+<li>Timestamps, Git commit identity, and sidecar state are not freshness evidence.</li>
+<li>The policy is stateless and reads the current Markdown and HTML on every event.</li>
+<li><code>html-docs bootstrap &lt;explicit paths&gt;</code> enumerates only the requested existing Target documents whose companions are missing or lack digest metadata and reports their current digests.</li>
+<li>It grants a bounded bootstrap mode for those HTML paths, but does not create HTML.</li>
+<li>The agent authors each companion in a separate operation; validator success is required before the migration is committed.</li>
+<li>Normal mode never treats a missing companion as permission to write HTML.</li>
+<li>A Markdown edit is not rolled back because HTML authoring failed.</li>
+<li>The policy never generates or silently repairs HTML.</li>
+<li>A failed or incomplete HTML authoring attempt does not count as synchronized; an existing valid companion is not replaced by an unvalidated candidate.</li>
+<li>A missing, stale, unsafe, structurally invalid, or text-incomplete companion produces a clear path-specific message and a non-zero check result.</li>
+<li>A host adapter that is missing, disabled, receives unknown payload fields, times out, or cannot invoke the policy denies HTML editing and reports setup guidance.</li>
+<li>Markdown editing remains available.</li>
+<li>External or manual writes are outside direct ordering control and are caught by the Git / CI gate when they affect a commit.</li>
+<li>A failed local hook does not make CI pass.</li>
+<li>A failed CI check prevents merge until the pair is corrected.</li>
+<li>The common policy owns decisions; adapters do not duplicate them.</li>
+<li>The agent owns HTML content structure and visual hierarchy; validators do not create or alter it.</li>
+<li>Markdown owns facts and order; HTML owns presentation and semantic wrappers.</li>
+<li>CSS owns shared presentation; HTML does not carry inline or external styling.</li>
+<li>Host hooks provide best-effort edit ordering; Git / CI provides the commit boundary.</li>
+</ul>
+</section>
+<section>
+<h2 id="file-structure">File Structure</h2>
+<table>
+<caption>Implementation paths and responsibilities</caption>
+<thead>
+<tr>
+  <th scope="col">Path</th>
+  <th scope="col">Responsibility</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td><code>scripts/sddlib/html_policy.py</code></td>
+  <td>Target resolution, byte digests, edit permissions, HTML validation, and host-neutral results</td>
+</tr>
+<tr>
+  <td><code>scripts/sddlib/md.py</code></td>
+  <td>Shared Markdown source-text and heading/task extraction helpers used by policy validation</td>
+</tr>
+<tr>
+  <td><code>scripts/html-docs</code></td>
+  <td>JSON policy CLI for <code>edit-check</code>, <code>check</code>, <code>bootstrap</code>, and <code>doctor</code></td>
+</tr>
+<tr>
+  <td><code>scripts/sdd-html-pre-commit</code></td>
+  <td>Versioned staged-tree wrapper that delegates to an existing hook</td>
+</tr>
+<tr>
+  <td><code>adapters/cursor/html_docs_hook.py</code></td>
+  <td>Cursor stdin/stdout hook adapter</td>
+</tr>
+<tr>
+  <td><code>adapters/claude/html_docs_hook.py</code></td>
+  <td>Claude Code command-hook adapter</td>
+</tr>
+<tr>
+  <td><code>adapters/opencode/html_docs_plugin.ts</code></td>
+  <td>OpenCode plugin adapter for tool-before and file-edited events</td>
+</tr>
+<tr>
+  <td><code>adapters/*/fixtures/</code></td>
+  <td>Host payload and response fixtures</td>
+</tr>
+<tr>
+  <td><code>assets/sdd.css</code></td>
+  <td>Pack-owned shared document stylesheet</td>
+</tr>
+<tr>
+  <td><code>docs/sdd/assets/sdd.css</code></td>
+  <td>Checked-in stylesheet used by the pack's authored HTML</td>
+</tr>
+<tr>
+  <td><code>CONTEXT.html</code>, <code>docs/adr/*.html</code>, <code>docs/sdd/specs/*.html</code>, <code>docs/sdd/plans/*.html</code></td>
+  <td>Authored HTML migration with current source digests</td>
+</tr>
+<tr>
+  <td><code>tests/test_html_policy.py</code></td>
+  <td>Unit tests for target resolution, digests, permissions, and HTML validation</td>
+</tr>
+<tr>
+  <td><code>tests/test_html_docs.py</code></td>
+  <td>CLI, staged-tree, PR-diff, bootstrap, and doctor tests</td>
+</tr>
+<tr>
+  <td><code>tests/test_host_adapters.py</code></td>
+  <td>Cursor and Claude Code payload mapping tests</td>
+</tr>
+<tr>
+  <td><code>adapters/opencode/html_docs_plugin.test.ts</code></td>
+  <td>OpenCode adapter mapping tests run by Bun</td>
+</tr>
+<tr>
+  <td><code>tests/test_sdd_css.py</code></td>
+  <td>Shared CSS contract tests</td>
+</tr>
+<tr>
+  <td><code>tests/fixtures/{glossary,adr,spec,plan}/</code></td>
+  <td>Authored structural and unsafe-markup fixtures</td>
+</tr>
+<tr>
+  <td><code>README.md</code></td>
+  <td>Installation, explicit setup, hook enablement, and CI instructions</td>
+</tr>
+<tr>
+  <td><code>skills/sdd-design/SKILL.md</code></td>
+  <td>Markdown-before-HTML authoring workflow</td>
+</tr>
+<tr>
+  <td><code>skills/sdd-plan/SKILL.md</code></td>
+  <td>Plan companion authoring and validation workflow</td>
+</tr>
+<tr>
+  <td><code>skills/sdd/SKILL.md</code></td>
+  <td>Pack routing and HTML policy references</td>
+</tr>
+<tr>
+  <td><code>scripts/render-docs</code>, <code>scripts/sddlib/render.py</code>, <code>tests/test_render_docs.py</code></td>
+  <td>Legacy renderer surfaces to remove in Task 8</td>
+</tr>
+</tbody>
+</table>
+</section>
+<article class="plan-task" data-task-number="1">
+<h2 id="task-1-implement-target-resolution-digests-and-edit-permissions">Task 1: Implement target resolution, digests, and edit permissions</h2>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Create <code>scripts/sddlib/html_policy.py</code>.</li>
+<li>Extend <code>scripts/sddlib/md.py</code> only with helpers needed to identify visible Markdown source text without changing <code>task_headings</code>, <code>plan_task_numbers</code>, <code>extract_task_heading</code>, or <code>extract_task</code> behavior.</li>
+<li>Create <code>tests/test_html_policy.py</code>.</li>
+</ul>
+<p><strong>Steps:</strong></p>
+<ol>
+<li><p>Define one target resolver that accepts a repository root and a repository-relative or absolute path. It must recognize only the exact target set in Global Constraints, resolve an adjacent same-stem <code>.html</code> companion, reject paths outside the repository, and return a no-op result for unrelated files.</p>
+</li>
+<li><p>Implement <code>sha256_file(path)</code> over <code>Path.read_bytes()</code> and return lowercase hexadecimal. Do not normalize line endings, whitespace, encoding, or final newlines.</p>
+</li>
+<li><p>Implement strict digest metadata parsing for exactly one <code>&lt;meta name=&quot;sdd-source-digest&quot; content=&quot;sha256:&lt;64 lowercase hexadecimal characters&gt;&quot;&gt;</code> element. Missing, duplicate, malformed, or uppercase metadata must be distinguishable for bootstrap and validation messages.</p>
+</li>
+<li><p>Define the host-neutral result shape used by every later task:</p>
+<pre><code class="language-json">{
+  &quot;decision&quot;: &quot;allow&quot;,
+  &quot;message&quot;: &quot;Markdown changed; author CONTEXT.html separately.&quot;,
+  &quot;paths&quot;: [&quot;CONTEXT.md&quot;, &quot;CONTEXT.html&quot;],
+  &quot;expected_digests&quot;: {&quot;CONTEXT.html&quot;: &quot;sha256:&lt;64 lowercase hexadecimal characters&gt;&quot;}
+}
+</code></pre>
+<p><code>decision</code> is <code>allow</code> or <code>deny</code>; <code>paths</code> is repository-relative and ordered; <code>expected_digests</code> is present for affected companions and empty otherwise.</p>
+</li>
+<li><p>Implement <code>check_edit(repo_root, paths, bootstrap_paths=())</code> with these exact decisions: unrelated edits allow; a Target Markdown edit allows and reports its companion plus current digest; a single operation containing both paired paths denies; an HTML edit allows only when an existing companion has a valid digest different from the current Markdown digest; a missing or metadata-less companion denies unless its exact path is in <code>bootstrap_paths</code>; deletion or movement is handled later by the Git diff checker and is not silently allowed by the edit policy.</p>
+</li>
+<li><p>Treat a newly created Target Markdown file as the source edit for its first separate HTML operation, while a missing companion for an existing Markdown file remains denied in normal mode.</p>
+</li>
+<li><p>Reject unknown policy arguments and malformed paths with a structured violation that later maps to exit code <code>2</code>; never write files from this module.</p>
+</li>
+</ol>
+<p><strong>Tests:</strong></p>
+<ul>
+<li><code>uvx --from pytest pytest -q tests/test_html_policy.py</code></li>
+<li>Cover exact target matching, adjacent paths, absolute paths, path escape, byte-preserving digests for CRLF/trailing whitespace/final newline, metadata parsing, mixed operations, multiple Markdown edits before HTML, stale-after-source-edit, new-source bootstrap exception, normal missing companion denial, and unrelated/CSS-only no-op allow.</li>
+</ul>
+</article>
+<article class="plan-task" data-task-number="2">
+<h2 id="task-2-add-the-authored-html-validator">Task 2: Add the authored HTML validator</h2>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Complete <code>scripts/sddlib/html_policy.py</code> with the validator described below.</li>
+<li>Extend <code>tests/test_html_policy.py</code>.</li>
+<li>Add or replace fixtures under <code>tests/fixtures/glossary/</code>, <code>tests/fixtures/adr/</code>, <code>tests/fixtures/spec/</code>, and <code>tests/fixtures/plan/</code> with authored HTML examples.</li>
+</ul>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Parse HTML with the Python standard library and retain document order, element attributes, text nodes, headings, fragments, landmarks, tables, links, resources, and warnings. A malformed or unbalanced document is a violation.</li>
+<li>Validate exact digest correspondence, one language <code>html</code> element, UTF-8 charset, viewport, title, restrictive CSP, exactly one digest meta, one same-repository stylesheet link to <code>docs/sdd/assets/sdd.css</code>, skip link to <code>main</code>, document-kind header, and focusable <code>main</code>.</li>
+<li>Reject <code>script</code>, <code>iframe</code>, <code>frame</code>, <code>object</code>, <code>embed</code>, event attributes, <code>&lt;style&gt;</code>, style attributes, external stylesheets, external fonts, network-dependent images/media, executable inline content, and raw executable HTML. Preserve ordinary external source hyperlinks as links because they are source content rather than page resources.</li>
+<li>Extract visible source content from Markdown without trusting raw HTML and compare it with the text under <code>main</code> in order. Ignore only permitted companion labels, navigation text, skip-link text, and document metadata; require code, list, table, link-label, and raw-HTML-as-text content to remain present. Report the first missing or reordered fragment with its source path.</li>
+<li>Require <code>caption</code> and scoped <code>th</code> cells for every table. Require stable slug IDs for headings, occurrence-order suffixes for duplicate headings, and fragment targets that resolve. Preserve source heading levels; emit warnings, not failures, for multiple h1 or skipped levels.</li>
+<li>Require a named <code>aside</code>/<code>nav</code> outline with native <code>details</code> when h2 or h3 exist, and reject empty <code>aside</code>/<code>nav</code> when they do not. Allow compact ADR pages with only an h1 and no outline.</li>
+<li>Validate <code>html lang</code> as a non-<code>und</code> dominant prose language and validate that warnings are returned separately from violations. Do not generate, rewrite, or repair HTML.</li>
+</ol>
+<p><strong>Tests:</strong></p>
+<ul>
+<li><code>uvx --from pytest pytest -q tests/test_html_policy.py</code></li>
+<li>Cover glossary <code>dl</code>/<code>dt</code>/<code>dd</code> and <code>_Avoid_</code>, ADR decision article without invented headings, spec nested outlines, plan task articles and lead metadata, duplicate headings, missing outlines, unsafe tags/resources, missing table labels, source-text omission/reordering, invalid digest, invalid language, and warning-only heading irregularities.</li>
+</ul>
+</article>
+<article class="plan-task" data-task-number="3">
+<h2 id="task-3-implement-the-html-docs-cli">Task 3: Implement the <code>html-docs</code> CLI</h2>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Create executable <code>scripts/html-docs</code> using the existing <code>task-brief</code> wrapper pattern.</li>
+<li>Extend <code>scripts/sddlib/html_policy.py</code> only through its public policy functions; keep CLI parsing in a small module or the script entrypoint.</li>
+<li>Create <code>tests/test_html_docs.py</code>.</li>
+</ul>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Run from the consuming repository root and accept only these JSON stdin keys for <code>edit-check</code>: <code>operation</code>, <code>paths</code>, and optional <code>bootstrap_paths</code>. Require <code>operation</code> to be <code>edit</code>, normalize paths through the shared resolver, print one JSON result plus a newline, and map policy violations to exit code <code>1</code> and invalid input/execution failures to <code>2</code>.</li>
+<li>Implement <code>scripts/html-docs edit-check</code> as the sole host-facing permission command. It must not edit Markdown, HTML, CSS, configuration, or sidecar state.</li>
+<li>Implement <code>scripts/html-docs check --staged</code> by reading <code>git diff --cached --name-status --find-renames -z</code>, and <code>scripts/html-docs check --base REF</code> by reading <code>git diff --name-status --find-renames REF...HEAD -z</code>. Accept exactly one of <code>--staged</code>, <code>--base REF</code>, or explicit repository-relative paths for deterministic tests.</li>
+<li>For each affected Target pair, validate the authored HTML and source digest. Reject Markdown-only changes, HTML-only changes, stale pairs, missing pairs, mixed pair patches, one-sided rename/delete, and partial multi-document changes. Allow CSS-only and unrelated changes. Use Git status data only to decide affected pairs; use current bytes and HTML metadata as freshness evidence.</li>
+<li>Implement <code>scripts/html-docs bootstrap PATH...</code> to enumerate only explicitly requested existing Target Markdown files whose companion is missing or metadata-less, returning current digests without creating files or changing policy state. Reject omitted or non-target paths.</li>
+<li>Implement <code>scripts/html-docs doctor</code> to report a structured status for the Cursor, Claude Code, and OpenCode registrations described in Task 5. Missing, disabled, incompatible, or unreadable registration is a non-zero setup violation, not an automatic enablement.</li>
+<li>Keep output stable and path-specific so adapters can pass <code>message</code>, <code>paths</code>, and <code>expected_digests</code> through without parsing human prose.</li>
+</ol>
+<p><strong>Tests:</strong></p>
+<ul>
+<li><code>uvx --from pytest pytest -q tests/test_html_docs.py</code></li>
+<li>Use temporary Git repositories for staged and <code>REF...HEAD</code> diffs, new pairs, multiple pairs, CSS-only changes, HTML-only changes, stale pairs, rename, delete, malformed JSON, unknown fields, bootstrap output, exit codes, and doctor registration states.</li>
+</ul>
+</article>
+<article class="plan-task" data-task-number="4">
+<h2 id="task-4-update-the-shared-css-and-migrate-authored-html">Task 4: Update the shared CSS and migrate authored HTML</h2>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Update <code>assets/sdd.css</code> and keep <code>docs/sdd/assets/sdd.css</code> byte-identical.</li>
+<li>Author or update every current Target companion: <code>CONTEXT.html</code>, all <code>docs/adr/*.html</code>, all <code>docs/sdd/specs/*.html</code>, and all <code>docs/sdd/plans/*.html</code>.</li>
+<li>Add <code>tests/test_sdd_css.py</code>.</li>
+</ul>
+<p><strong>Steps:</strong></p>
+<ol>
+<li><p>Preserve the existing system-font tokens and add selectors for <code>skip-link</code>, <code>document-header</code>, <code>document-kind</code>, <code>document-layout</code>, <code>document-outline</code>, <code>metadata</code>, <code>decision-article</code>, <code>term-entry</code>, <code>avoid-terms</code>, and plan task number/rail treatments. Use relative spacing and type tokens rather than one-off layout values.</p>
+</li>
+<li><p>Make desktop pages use a readable 60--75ch main measure with a secondary outline that is sticky only when the viewport permits. Make narrow pages use the native <code>details</code> outline, remove page-wide horizontal overflow, and keep tables and <code>pre</code> blocks locally scrollable.</p>
+</li>
+<li><p>Add light/dark semantic colors, accessible focus states and boundaries, browser zoom support, and <code>prefers-reduced-motion</code> handling. Do not add gradients, excessive shadows, external fonts, or JavaScript.</p>
+</li>
+<li><p>Manually author the current repository companions from their Markdown sources. Preserve every source fact, body text, heading, code block, list, table, link, and order; add only permitted labels, metadata, navigation, and semantic wrappers. Put the exact current Markdown digest in each head.</p>
+</li>
+<li><p>Use <code>dl</code> for <code>CONTEXT.md</code>, compact decision articles for ADRs, h2/h3 sections and outline navigation for specs, and independent numbered articles with no invented status for every <code>## Task N:</code> in plans. Do not migrate <code>docs/superpowers/</code>.</p>
+</li>
+<li><p>Run the browser checklist against representative glossary, ADR, spec, and plan pages from a local server:</p>
+<pre><code class="language-bash">python3 -m http.server 8000 --directory .
+</code></pre>
+<p>Check desktop and mobile widths, light and dark modes, keyboard skip/outline navigation, browser zoom, reduced motion, the three-second outline, squint separation, and page-wide overflow. Stop the server after the check.</p>
+</li>
+</ol>
+<p><strong>Tests:</strong></p>
+<ul>
+<li><code>uvx --from pytest pytest -q tests/test_sdd_css.py</code></li>
+<li><code>cmp assets/sdd.css docs/sdd/assets/sdd.css</code></li>
+<li><code>git diff --check</code></li>
+<li>Run <code>python3 scripts/html-docs check --paths CONTEXT.md CONTEXT.html</code> and the equivalent explicit checks for every migrated Target pair.</li>
+</ul>
+</article>
+<article class="plan-task" data-task-number="5">
+<h2 id="task-5-add-cursor-claude-code-and-opencode-adapters">Task 5: Add Cursor, Claude Code, and OpenCode adapters</h2>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Create executable <code>adapters/cursor/html_docs_hook.py</code> and <code>adapters/cursor/hooks.json.example</code>.</li>
+<li>Create executable <code>adapters/claude/html_docs_hook.py</code> and <code>hooks/hooks.json</code> for the Claude plugin registration.</li>
+<li>Create <code>adapters/opencode/html_docs_plugin.ts</code> and <code>adapters/opencode/html_docs_plugin.test.ts</code>.</li>
+<li>Add payload fixtures under <code>adapters/cursor/fixtures/</code>, <code>adapters/claude/fixtures/</code>, and <code>adapters/opencode/fixtures/</code>.</li>
+<li>Complete <code>html-docs doctor</code> registration checks and extend <code>tests/test_host_adapters.py</code>.</li>
+</ul>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Cursor adapter: accept Cursor hook JSON on stdin, recognize <code>preToolUse</code>, <code>afterFileEdit</code>, and <code>stop</code>, extract only <code>Write</code>, <code>Edit</code>, <code>MultiEdit</code>, and <code>Delete</code> target paths, call <code>scripts/html-docs edit-check</code>, and emit Cursor <code>permission: allow|deny</code> plus user/agent messages. Unknown event fields or malformed payloads deny HTML edits and report setup guidance; non-target edits remain allowed. The example config must register the adapter with <code>preToolUse</code>, <code>afterFileEdit</code>, and <code>stop</code>, <code>failClosed: true</code>, and project-root-relative command paths.</li>
+<li>Claude adapter: accept <code>PreToolUse</code> and <code>PostToolUse</code> hook payloads, match <code>Edit|Write|MultiEdit|NotebookEdit</code> only where the payload contains target paths, invoke the same CLI contract, and emit <code>hookSpecificOutput</code> with <code>hookEventName</code>, <code>permissionDecision</code>, and <code>permissionDecisionReason</code>. The plugin hook file must use <code>${CLAUDE_PLUGIN_ROOT}/adapters/claude/html_docs_hook.py</code>, retain Markdown availability, and deny on unknown or failed policy calls.</li>
+<li>OpenCode adapter: export a plugin function from <code>adapters/opencode/html_docs_plugin.ts</code> using the host-provided plugin context and no external npm package. Map <code>tool.execute.before</code> to a policy call that throws on deny and map <code>file.edited</code> to post-edit validation/feedback. Invoke the Python CLI with argument arrays rather than shell interpolation. Expose pure payload-to-request helpers so the Bun test can cover allow, deny, bootstrap, unknown input, and policy failure without starting OpenCode.</li>
+<li>Keep all digest, target, validation, and freshness decisions in <code>html_policy.py</code>; adapters may only parse host payloads, invoke the CLI, and map responses.</li>
+<li>Make <code>doctor</code> check the exact registration markers and executable command paths for each host. It must report one result per host and never write configuration.</li>
+</ol>
+<p><strong>Tests:</strong></p>
+<ul>
+<li><code>uvx --from pytest pytest -q tests/test_host_adapters.py</code></li>
+<li><code>bun test adapters/opencode/html_docs_plugin.test.ts</code></li>
+<li>Feed every adapter fixture through its stdin/module boundary and assert allow, deny, bootstrap, unknown-input, timeout/policy-failure, and feedback mappings.</li>
+</ul>
+</article>
+<article class="plan-task" data-task-number="6">
+<h2 id="task-6-add-the-local-git-wrapper-and-ci-contract">Task 6: Add the local Git wrapper and CI contract</h2>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Create executable <code>scripts/sdd-html-pre-commit</code>.</li>
+<li>Create <code>tests/test_sdd_html_pre_commit.py</code>.</li>
+<li>Add provider-neutral CI and existing-hook delegation instructions to <code>README.md</code> in Task 7; do not add a provider-specific workflow.</li>
+</ul>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Make the wrapper resolve the repository root with <code>git rev-parse --show-toplevel</code>, call <code>python3 &quot;$SDD_PACK_ROOT/scripts/html-docs&quot; check --staged</code>, and stop with the policy exit code on failure.</li>
+<li>After a successful freshness check, delegate to the executable path in <code>SDD_PRE_COMMIT_DELEGATE</code>, or to <code>$GIT_DIR/hooks/pre-commit.sdd-existing</code> when that file exists. Pass through all wrapper arguments and preserve the delegate exit code. If no delegate exists, exit <code>0</code>.</li>
+<li>Do not replace, delete, or edit an existing hook automatically. The documented setup must move or copy an existing hook to the <code>.sdd-existing</code> name before installing the versioned wrapper.</li>
+<li>Define the CI invocation as <code>python3 &quot;$SDD_PACK_ROOT/scripts/html-docs&quot; check --base &quot;$BASE_REF&quot;</code>, where <code>BASE_REF</code> resolves to the provider's PR base commit or branch. The implementation must not call a host application, subagent, network service, or <code>gh</code>.</li>
+</ol>
+<p><strong>Tests:</strong></p>
+<ul>
+<li><code>uvx --from pytest pytest -q tests/test_sdd_html_pre_commit.py</code></li>
+<li>Use temporary repositories to verify staged pass/fail, delegate pass/fail, absent delegate, <code>SDD_PRE_COMMIT_DELEGATE</code>, PR-base diff, and unchanged existing hook contents.</li>
+</ul>
+</article>
+<article class="plan-task" data-task-number="7">
+<h2 id="task-7-update-pack-instructions-and-remove-automatic-generation-language">Task 7: Update pack instructions and remove automatic-generation language</h2>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Update <code>README.md</code>.</li>
+<li>Update <code>skills/sdd-design/SKILL.md</code>, <code>skills/sdd-plan/SKILL.md</code>, and <code>skills/sdd/SKILL.md</code>.</li>
+<li>Add any host setup examples under <code>adapters/</code> rather than creating host-specific configuration in the consuming repository.</li>
+</ul>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Replace statements that HTML is generated with the canonical Markdown plus Agent-authored HTML companion contract. Document the exact target paths, adjacent HTML paths, shared CSS setup, digest metadata, and validation commands.</li>
+<li>In <code>sdd-design</code>, after a canonical Markdown edit instruct the agent to author the HTML in a separate native file-edit operation, include the current digest, run <code>html-docs</code> validation, and never invoke the retired renderer. Keep CONTEXT and ADR formatting requirements unchanged.</li>
+<li>In <code>sdd-plan</code>, replace the <code>render-docs</code> command with separate plan Markdown and HTML authoring, <code>html-docs check</code>, and a commit of both files. Preserve the exact plan header and <code>## Task N:</code> requirements.</li>
+<li>In <code>sdd</code>, route HTML-related synchronization failures to the common policy and retain the existing SDD pipeline and no-Superpowers/no-subagent-in-CI rules.</li>
+<li>Document explicit Cursor, Claude Code, and OpenCode enablement, <code>html-docs doctor</code>, local pre-commit installation, provider-neutral CI, bootstrap procedure, and the fact that shell/MCP/manual/hook-disabled writes are caught at Git/CI rather than forcibly ordered.</li>
+<li>Do not modify or migrate legacy <code>docs/superpowers/</code> documents. Historical review/spec files may retain historical <code>render-docs</code> references when they are not part of the active instructions.</li>
+</ol>
+<p><strong>Tests:</strong></p>
+<ul>
+<li><code>git diff --check</code></li>
+<li><code>git grep -n &quot;render-docs&quot; -- skills README.md adapters scripts tests</code> must return no active-instruction or runtime reference after Task 8; historical <code>docs/superpowers/</code> references are excluded from this check.</li>
+<li><code>python3 scripts/html-docs doctor</code> reports the three explicit adapter registrations in a configured fixture repository.</li>
+</ul>
+</article>
+<article class="plan-task" data-task-number="8">
+<h2 id="task-8-retire-the-mechanical-renderer-and-finish-integration-coverage">Task 8: Retire the mechanical renderer and finish integration coverage</h2>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Delete <code>scripts/render-docs</code>.</li>
+<li>Delete <code>scripts/sddlib/render.py</code>.</li>
+<li>Delete <code>tests/test_render_docs.py</code>.</li>
+<li>Delete the unused vendored <code>scripts/_vendor/mistune/</code> package and <code>scripts/_vendor/mistune-LICENSE</code> after confirming no remaining runtime import.</li>
+<li>Replace mechanical HTML goldens in <code>tests/fixtures/</code> with authored fixtures validated by <code>tests/test_html_policy.py</code>.</li>
+<li>Update any remaining active references found by <code>git grep</code>.</li>
+</ul>
+<p><strong>Steps:</strong></p>
+<ol>
+<li><p>Confirm with <code>git grep -n &quot;sddlib\.render\|from sddlib import render\|import mistune\|scripts/render-docs&quot; -- ':!docs/superpowers/**' ':!docs/reviews/**'</code> that only the planned deletion and tests remain, then remove the renderer and its vendor dependency.</p>
+</li>
+<li><p>Replace exact HTML golden comparisons with structural, security, digest, text-fidelity, and warning assertions. Keep Markdown fixtures for glossary, ADR, spec, plan, duplicate headings, missing outline, unsafe markup, and irregular heading cases.</p>
+</li>
+<li><p>Run the complete suite and policy checks:</p>
+<pre><code class="language-bash">uvx --from pytest pytest -q
+git diff --check
+python3 scripts/html-docs check --staged
+</code></pre>
+</li>
+<li><p>Verify that all active target pairs have matching source digests, all target HTML links resolve to the checked-in stylesheet, no target HTML contains forbidden executable content, and <code>assets/sdd.css</code> matches <code>docs/sdd/assets/sdd.css</code>.</p>
+</li>
+<li><p>Run <code>python3 scripts/html-docs bootstrap</code> with explicit legacy paths in a temporary fixture repository and confirm it reports digests without creating HTML. Run normal mode against the same missing companions and confirm it denies the HTML edit.</p>
+</li>
+</ol>
+<p><strong>Tests:</strong></p>
+<ul>
+<li><code>uvx --from pytest pytest -q</code></li>
+<li><code>git grep -n &quot;render-docs\|sddlib\.render\|mistune&quot; -- ':!docs/superpowers/**' ':!docs/reviews/**'</code> returns no active runtime or instruction references.</li>
+<li><code>cmp assets/sdd.css docs/sdd/assets/sdd.css</code></li>
+<li><code>python3 scripts/html-docs check --paths CONTEXT.md CONTEXT.html docs/adr/0001-land-stacked-prs-without-restack.md docs/adr/0001-land-stacked-prs-without-restack.html docs/adr/0002-agent-authored-html.md docs/adr/0002-agent-authored-html.html docs/adr/0003-html-edit-order-and-freshness-gate.md docs/adr/0003-html-edit-order-and-freshness-gate.html docs/sdd/specs/2026-09-01-agent-authored-html-design.md docs/sdd/specs/2026-09-01-agent-authored-html-design.html docs/sdd/specs/2026-09-01-stacked-pr-review-fix-design.md docs/sdd/specs/2026-09-01-stacked-pr-review-fix-design.html docs/sdd/plans/2026-09-01-agent-authored-html.md docs/sdd/plans/2026-09-01-agent-authored-html.html docs/sdd/plans/2026-09-01-stacked-pr-review-fix.md docs/sdd/plans/2026-09-01-stacked-pr-review-fix.html</code></li>
+</ul>
+</article>
+
+</main>
+</div>
+</body>
+</html>
