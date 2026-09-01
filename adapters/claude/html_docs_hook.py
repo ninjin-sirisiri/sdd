@@ -128,12 +128,14 @@ def request_from_payload(payload: Any) -> tuple[str, dict[str, Any] | None]:
 
 
 def _response(event: str, decision: str, reason: str) -> dict[str, Any]:
+    output: dict[str, str] = {"hookEventName": event}
+    if event == "PostToolUse":
+        output["additionalContext"] = reason
+    else:
+        output["permissionDecision"] = decision
+        output["permissionDecisionReason"] = reason
     return {
-        "hookSpecificOutput": {
-            "hookEventName": event,
-            "permissionDecision": decision,
-            "permissionDecisionReason": reason,
-        }
+        "hookSpecificOutput": output
     }
 
 

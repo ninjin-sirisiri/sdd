@@ -75,7 +75,13 @@ def test_stdin_fixtures_map_host_decisions(
     if host == "cursor":
         assert result["permission"] == expected
     else:
-        assert result["hookSpecificOutput"]["permissionDecision"] == expected
+        output = result["hookSpecificOutput"]
+        if fixture == "post_tool_use.json":
+            assert output["hookEventName"] == "PostToolUse"
+            assert output["additionalContext"] == "All requested HTML companions are valid."
+            assert "permissionDecision" not in output
+        else:
+            assert output["permissionDecision"] == expected
 
 
 @pytest.mark.parametrize(
@@ -128,6 +134,31 @@ def test_claude_write_pretool_marks_new_target_source() -> None:
         "operation": "edit",
         "paths": ["CONTEXT.md"],
         "new_source_paths": ["CONTEXT.md"],
+    }
+
+
+def test_claude_post_tool_use_uses_feedback_schema_for_policy_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        claude,
+        "invoke_validation",
+        lambda _paths: {"decision": "deny", "message": "companion is invalid"},
+    )
+
+    result = claude.handle_payload(
+        {
+            "hook_event_name": "PostToolUse",
+            "tool_name": "Edit",
+            "tool_input": {"file_path": "CONTEXT.html"},
+        }
+    )
+
+    assert result == {
+        "hookSpecificOutput": {
+            "hookEventName": "PostToolUse",
+            "additionalContext": "companion is invalid",
+        }
     }
 
 
