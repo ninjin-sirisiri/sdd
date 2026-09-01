@@ -1,0 +1,38 @@
+#!/bin/sh
+
+repository_root=$(git rev-parse --show-toplevel 2>/dev/null) || {
+    printf '%s\n' 'sdd-html-pre-commit: cannot resolve the Git repository root.' >&2
+    exit 2
+}
+
+if [ -z "${SDD_PACK_ROOT:-}" ]; then
+    printf '%s\n' 'sdd-html-pre-commit: SDD_PACK_ROOT is not set.' >&2
+    exit 2
+fi
+
+if ! cd "$repository_root"; then
+    printf '%s\n' "sdd-html-pre-commit: cannot enter repository root: $repository_root" >&2
+    exit 2
+fi
+
+python3 "$SDD_PACK_ROOT/scripts/html-docs" check --staged
+policy_status=$?
+if [ "$policy_status" -ne 0 ]; then
+    exit "$policy_status"
+fi
+
+if [ -n "${SDD_PRE_COMMIT_DELEGATE:-}" ]; then
+    "$SDD_PRE_COMMIT_DELEGATE" "$@"
+    exit $?
+fi
+
+existing_hook=$(git rev-parse --git-path hooks/pre-commit.sdd-existing 2>/dev/null) || {
+    printf '%s\n' 'sdd-html-pre-commit: cannot resolve the existing hook path.' >&2
+    exit 2
+}
+if [ -f "$existing_hook" ]; then
+    "$existing_hook" "$@"
+    exit $?
+fi
+
+exit 0
