@@ -96,19 +96,46 @@ When the frontier is empty, do not act. Summarize the shared understanding and w
 
 Spike: grill only until the probe is specified, then the spike ending. Bounded and architectural: empty the frontier of this change, then confirm, then Endings.
 
+## Target companions
+
+The synchronization contract applies only to `CONTEXT.md`, `docs/adr/*.md`,
+`docs/sdd/specs/*.md`, and `docs/sdd/plans/*.md`. Each Target document has an
+adjacent same-stem `.html` Agent-authored HTML companion. Markdown remains the
+source of truth, and the shared stylesheet is `docs/sdd/assets/sdd.css`.
+
+After a successful Canonical Markdown edit:
+
+1. Read the exact Markdown bytes, including line endings, trailing whitespace,
+   and the final newline. Put the current lowercase SHA-256 value in the HTML
+   head as `<meta name="sdd-source-digest" content="sha256:<64 lowercase hexadecimal characters>">`.
+2. Author the adjacent HTML companion in a separate native file-edit
+   operation. Do not edit the Markdown and HTML in one tool call or patch, and
+   never invoke the retired Markdown-to-HTML renderer.
+3. Run the common validator from the consuming repository:
+
+   ```text
+   python3 <pack-root>/scripts/html-docs check --paths <target>.md <target>.html
+   ```
+
+The companion must preserve source facts, visible content, headings, code,
+lists, tables, links, and reading order. The validator owns synchronization,
+security, structure, and text-fidelity decisions; it does not create or repair
+HTML. A missing companion for an existing Target document requires explicit
+`html-docs bootstrap <target>.md` before separate authoring.
+
 ## CONTEXT.md
 
-When a term resolves, write it immediately using the template at `<pack-root>/docs/formats/context.md`. Then run:
+When a term resolves, write it immediately using the template at `<pack-root>/docs/formats/context.md`. Then author the adjacent `CONTEXT.html` in the separate operation described above and validate it with:
 
 ```text
-python3 <pack-root>/scripts/render-docs CONTEXT.md
+python3 <pack-root>/scripts/html-docs check --paths CONTEXT.md CONTEXT.html
 ```
 
-If render-docs exits non-zero, warn and continue. Never put implementation detail in CONTEXT.md.
+Never put implementation detail in `CONTEXT.md`.
 
 ## ADRs
 
-Offer an ADR only when all three gates in `<pack-root>/docs/formats/adr.md` hold. After the human agrees, write `docs/adr/NNNN-slug.md` in the consuming repo and render that file. If a gate is missing, put the decision in the spec instead (architectural) or keep it in the short chat design (bounded).
+Offer an ADR only when all three gates in `<pack-root>/docs/formats/adr.md` hold. After the human agrees, write `docs/adr/NNNN-slug.md` in the consuming repo, then author its adjacent `docs/adr/NNNN-slug.html` in a separate native file-edit operation and validate the pair with `python3 <pack-root>/scripts/html-docs check --paths docs/adr/NNNN-slug.md docs/adr/NNNN-slug.html`. If a gate is missing, put the decision in the spec instead (architectural) or keep it in the short chat design (bounded). Keep the ADR formatting requirements unchanged.
 
 ## Endings
 
@@ -118,7 +145,7 @@ Do not enter Endings while the frontier is non-empty, except a spike whose probe
 
 **Bounded:** Short design in chat. Stop until an explicit yes. Before TDD, ask once whether to create an isolated git worktree (same prompt as sdd-execute Workspace). Already in a linked worktree, or a yes/no already recorded this conversation: do not ask. Yes: use using-git-worktrees, then TDD there. No: TDD in this checkout. Then use test-driven-development in this session. No spec file, no plan file.
 
-**Architectural:** If the interview did not already choose among 2–3 approaches, propose them now, recommended first. Present the settled design in sections; wait for approval after each. Then write `docs/sdd/specs/YYYY-MM-DD-<topic>-design.md` and render it. Self-review: no placeholders, no contradictions, one interpretation per requirement, scope that fits one plan. Commit the spec plus this session's CONTEXT.md / ADR / HTML changes. Ask the human to review the spec file. Further spec edits are new commits (do not amend). After they approve, use sdd-plan. Do not use writing-plans.
+**Architectural:** If the interview did not already choose among 2–3 approaches, propose them now, recommended first. Present the settled design in sections; wait for approval after each. Then write `docs/sdd/specs/YYYY-MM-DD-<topic>-design.md`, author the adjacent `.html` companion in a separate native file-edit operation with the current source digest, and run `python3 <pack-root>/scripts/html-docs check --paths docs/sdd/specs/YYYY-MM-DD-<topic>-design.md docs/sdd/specs/YYYY-MM-DD-<topic>-design.html`. Self-review: no placeholders, no contradictions, one interpretation per requirement, scope that fits one plan. Commit the spec plus this session's CONTEXT.md / ADR / HTML changes only after validation. Ask the human to review the spec file. Further spec edits are new commits (do not amend). After they approve, use sdd-plan. Do not use writing-plans.
 
 Spec must record: classification, chosen approach, architecture, components, data flow, error handling, testing, goals/non-goals, consuming paths, and any numeric defaults, negative requirements, or ordering guarantees that did not earn an ADR. Do not end the session with those only in chat.
 

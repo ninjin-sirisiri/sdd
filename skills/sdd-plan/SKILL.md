@@ -43,14 +43,29 @@ Steps inside a task are not PR units. Task N is the stacked-PR boundary.
 
 Assume the implementer is skilled but does not know this repo. No TBD, no "similar to Task N", no steps without the actual commands or file contents.
 
-## HTML and commit
+## Agent-authored HTML and commit
 
-After writing the plan, run:
+After writing the plan Markdown, author `docs/sdd/plans/<file>.html` beside it
+in a separate native file-edit operation. Put the current digest of the exact
+Markdown bytes in the HTML head:
 
-```text
-python3 <pack-root>/scripts/render-docs docs/sdd/plans/<file>.md
+```html
+<meta name="sdd-source-digest" content="sha256:<64 lowercase hexadecimal characters>">
 ```
 
-If HTML fails, warn and continue. Commit the plan Markdown and its HTML. Then tell the human to run sdd-execute.
+Preserve the exact plan header above and every `## Task N:` heading. Each task
+is an independent article with no invented status. Use the shared
+`docs/sdd/assets/sdd.css` stylesheet and preserve all source facts, content,
+and order. Do not edit the plan Markdown and HTML in one tool call or patch.
+
+Validate both files from the consuming repository before committing:
+
+```text
+python3 <pack-root>/scripts/html-docs check --paths docs/sdd/plans/<file>.md docs/sdd/plans/<file>.html
+```
+
+If validation fails, fix the authored companion and validate again; do not
+create or repair it with a renderer. Commit the plan Markdown and its HTML
+only after validation passes. Then tell the human to run sdd-execute.
 
 `<pack-root>` is the directory that contains `skills/` and `scripts/` — the same definition as the `sdd` skill.
