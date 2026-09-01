@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="und">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src &#x27;none&#x27;; img-src &#x27;self&#x27; data:; style-src &#x27;self&#x27;; base-uri &#x27;none&#x27;; form-action &#x27;none&#x27;; frame-ancestors &#x27;none&#x27;">
+<title>Stacked PR review-fix Implementation Plan</title>
+<link rel="stylesheet" href="../assets/sdd.css">
+</head>
+<body>
+<header>
+<p>Plan</p>
+<nav aria-label="On this page">
+<ul>
+<li><a href="#global-constraints">Global Constraints</a></li>
+<li><a href="#file-structure">File structure</a></li>
+<li><a href="#task-1-attach-path-on-using-git-worktrees">Task 1: Attach path on using-git-worktrees</a></li>
+<li><a href="#task-2-sdd-review-fix-skill">Task 2: sdd-review-fix skill</a></li>
+<li><a href="#task-3-route-finish-pointer-and-readme">Task 3: Route, finish pointer, and README</a></li>
+</ul>
+</nav>
+</header>
+<main>
+<h1 id="stacked-pr-review-fix-implementation-plan">Stacked PR review-fix Implementation Plan</h1>
+<p><strong>Goal:</strong> After stacked PRs exist, a GitHub review updates the existing <code>sdd-stack/task-N</code> head in place via an attached review worktree, with no extra branch and no restack.</p>
+<p><strong>Architecture:</strong> <code>sdd-review-fix</code> owns the loop (evaluate, confirm the open PR, implement, test, push). <code>using-git-worktrees</code> gains an attach mode that checks out an existing stack branch with no <code>-b</code>. Isolate (<code>-b</code>, optional before execute) stays a separate entry. Finish and receiving-code-review only point here; they do not merge or create branches.</p>
+<p><strong>Tech Stack:</strong> English skill Markdown, git worktrees, <code>gh</code> for PR state only, existing pytest (no new CLI).</p>
+<p><strong>Spec:</strong> <code>docs/sdd/specs/2026-09-01-stacked-pr-review-fix-design.md</code></p>
+<section>
+<h2 id="global-constraints">Global Constraints</h2>
+<ul>
+<li>After finish option 4, GitHub review fixes update the existing stack branch in place. No new branch. No new PR.</li>
+<li>If the current checkout is not that stack branch, attach a review worktree to it (<code>-b</code> forbidden). Reuse that worktree on later rounds. Do not delete it.</li>
+<li>After tests pass in that checkout, <code>git push origin sdd-stack/task-N</code> with no <code>--force</code>.</li>
+<li>Descendants are not restacked. Integration is <strong>land</strong> from the bottom, by the human on GitHub. The agent never merges.</li>
+<li>Agents can find this loop: <code>sdd</code> routes to <code>sdd-review-fix</code>. Skill and prompt text stay English.</li>
+<li>Single PR (finish option 2) is out of scope for sdd-review-fix.</li>
+<li>Do not add review loops during sdd-execute. Do not poll GitHub for reviews.</li>
+<li>Do not restack, rebase descendants, <code>--force</code>, amend, or re-run <code>stack-prs</code> after review fixes.</li>
+<li>Do not call <code>gh pr create</code> or <code>gh pr merge</code>.</li>
+<li>Do not delete review worktrees or make an implementation worktree required.</li>
+<li>Do not add a new CLI. Do not change <code>stack-prs</code>, <code>task-brief</code>, or <code>review-package</code> behavior.</li>
+<li>Do not unit-test skill Markdown. Do not run subagents in CI.</li>
+<li>Review worktree path: <code>$LOCATION/sdd-stack-task-N</code>.</li>
+<li>Push remote: <code>origin</code>. Push ref: that stack branch only.</li>
+<li>Force-push: never.</li>
+<li>New stack branch names: never for review fixes.</li>
+<li>Ledger: do not rewrite Task complete lines after review commits.</li>
+<li>Checkout resolution is current → reuse → attach.</li>
+<li>One open stacked PR per sdd-review-fix run.</li>
+<li>If attach fails (including sandbox) and the current checkout is not the target stack branch, do not fall back to working in place. Stop.</li>
+</ul>
+</section>
+<section>
+<h2 id="file-structure">File structure</h2>
+<table>
+<thead>
+<tr>
+  <th>Path</th>
+  <th>Responsibility</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td><code>skills/using-git-worktrees/SKILL.md</code></td>
+  <td>Isolate (<code>-b</code>) and attach (existing branch)</td>
+</tr>
+<tr>
+  <td><code>skills/sdd-review-fix/SKILL.md</code></td>
+  <td>Review-fix loop</td>
+</tr>
+<tr>
+  <td><code>skills/sdd/SKILL.md</code></td>
+  <td>Route stacked-PR reviews to sdd-review-fix</td>
+</tr>
+<tr>
+  <td><code>skills/sdd-finish/SKILL.md</code></td>
+  <td>After option 4, point to sdd-review-fix and land</td>
+</tr>
+<tr>
+  <td><code>skills/receiving-code-review/SKILL.md</code></td>
+  <td>Evaluation only; stack git is sdd-review-fix</td>
+</tr>
+<tr>
+  <td><code>skills/sdd-execute/SKILL.md</code></td>
+  <td>No review worktrees from execute</td>
+</tr>
+<tr>
+  <td><code>README.md</code></td>
+  <td>Document sdd-review-fix</td>
+</tr>
+<tr>
+  <td><code>docs/superpowers/specs/2026-08-28-sdd-framework-design.md</code></td>
+  <td>Pointer to this spec for post-stack review</td>
+</tr>
+</tbody>
+</table>
+<p>Do not add scripts, pytest files, or plugin manifest skill lists.</p>
+</section>
+<section>
+<h2 id="task-1-attach-path-on-using-git-worktrees">Task 1: Attach path on using-git-worktrees</h2>
+<p>Replace <code>skills/using-git-worktrees/SKILL.md</code> with the file below. Isolate behavior stays: ask is still owned by execute/bounded TDD; <code>-b</code> still creates the isolation branch; sandbox denial may still work in place <strong>for isolate only</strong>. Attach never uses <code>-b</code>, never asks the execute prompt, never uses a native tool that would create a branch, and never falls back in place when the current checkout is not the target branch.</p>
+<p>Write <code>skills/using-git-worktrees/SKILL.md</code> as exactly:</p>
+<pre><code class="language-markdown">---
+name: using-git-worktrees
+description: Use isolate when the human requests isolation, or when sdd-execute's workspace prompt (or bounded TDD's equivalent) was answered yes. Use attach when sdd-review-fix names an existing stack branch. Do not use for sdd-execute Task implementers. Never create an isolate worktree during sdd-execute unless the human already said yes. Never use -b during attach.
+---
+
+# Using Git Worktrees
+
+This skill has two modes. The caller picks one.
+
+- **Isolate** — new branch with `-b`. sdd-execute / bounded TDD after the human said yes.
+- **Attach** — existing branch, no `-b`. sdd-review-fix only.
+
+Do not use this skill for sdd-execute Task implementers.
+
+If the caller named an existing branch (for stacked PR review, `sdd-stack/task-N`), follow **Attach**. Otherwise follow **Isolate**.
+
+## Isolate
+
+sdd-execute asks once before Task 1 whether to create a worktree. It is optional. Use isolate after they said yes, or when they independently request isolation.
+
+### Overview
+
+Ensure work happens in an isolated workspace. Prefer your platform's native worktree tools. Fall back to manual git worktrees only when no native tool is available.
+
+**Core principle:** Detect existing isolation first. Then use native tools. Then fall back to git. Never fight the harness.
+
+**Announce at start:** &quot;I'm using the using-git-worktrees skill to set up an isolated workspace.&quot;
+
+### Step 0: Detect Existing Isolation
+
+**Before creating anything, check if you are already in an isolated workspace.**
+
+```bash
+GIT_DIR=$(cd &quot;$(git rev-parse --git-dir)&quot; 2&gt;/dev/null &amp;&amp; pwd -P)
+GIT_COMMON=$(cd &quot;$(git rev-parse --git-common-dir)&quot; 2&gt;/dev/null &amp;&amp; pwd -P)
+BRANCH=$(git branch --show-current)
+```
+
+**Submodule guard:** `GIT_DIR != GIT_COMMON` is also true inside git submodules. Before concluding &quot;already in a worktree,&quot; verify you are not in a submodule:
+
+```bash
+# If this returns a path, you're in a submodule, not a worktree — treat as normal repo
+git rev-parse --show-superproject-working-tree 2&gt;/dev/null
+```
+
+**If `GIT_DIR != GIT_COMMON` (and not a submodule):** You are already in a linked worktree. Skip to Step 2 (Project Setup). Do NOT create another isolate worktree. This skip is isolate-only. It does not refuse Attach of a different branch in a later invocation.
+
+Report with branch state:
+- On a branch: &quot;Already in isolated workspace at `&lt;path&gt;` on branch `&lt;name&gt;`.&quot;
+- Detached HEAD: &quot;Already in isolated workspace at `&lt;path&gt;` (detached HEAD, externally managed). Branch creation needed at finish time.&quot;
+
+**If `GIT_DIR == GIT_COMMON` (or in a submodule):** You are in a normal repo checkout.
+
+Has the user already indicated their worktree preference in your instructions? If not, ask for consent before creating a worktree:
+
+&gt; &quot;Would you like me to set up an isolated worktree? It protects your current branch from changes.&quot;
+
+Honor any existing declared preference without asking. If the user declines consent, work in place and skip to Step 2.
+
+### Step 1: Create Isolated Workspace
+
+**You have two mechanisms. Try them in this order.**
+
+#### 1a. Native Worktree Tools (preferred)
+
+The user has asked for an isolated workspace (Step 0 consent). Do you already have a way to create a worktree? It might be a tool with a name like `EnterWorktree`, `WorktreeCreate`, a `/worktree` command, or a `--worktree` flag. If you do, use it and skip to Step 2.
+
+Native tools handle directory placement, branch creation, and cleanup automatically. Using `git worktree add` when you have a native tool creates phantom state your harness can't see or manage.
+
+Only proceed to Step 1b if you have no native worktree tool available.
+
+#### 1b. Git Worktree Fallback
+
+**Only use this if Step 1a does not apply** — you have no native worktree tool available. Create a worktree manually using git.
+
+##### Directory Selection
+
+Follow this priority order. Explicit user preference always beats observed filesystem state. Store the chosen directory in `LOCATION` and use only that path for ignore checks and creation.
+
+1. **Check your instructions for a declared worktree directory preference.** If the user has already specified one, set `LOCATION` to that path without asking.
+
+2. **Check for an existing project-local worktree directory:**
+   ```bash
+   ls -d .worktrees 2&gt;/dev/null     # Preferred (hidden)
+   ls -d worktrees 2&gt;/dev/null      # Alternative
+   ```
+   If `.worktrees` exists, `LOCATION=.worktrees`. Else if `worktrees` exists, `LOCATION=worktrees`. If both exist, `.worktrees` wins.
+
+3. **If there is no other guidance available**, set `LOCATION=.worktrees` at the project root.
+
+##### Safety Verification (project-local directories only)
+
+**MUST verify the selected directory is ignored before creating a worktree:**
+
+```bash
+git check-ignore -q &quot;$LOCATION&quot;
+```
+
+Check only `$LOCATION`. Do not treat a different candidate as proof that the selected path is ignored.
+
+**If NOT ignored:** Add `$LOCATION` to .gitignore, commit the change, then proceed.
+
+**Why critical:** Prevents accidentally committing worktree contents to repository.
+
+##### Create the Worktree
+
+```bash
+# Determine path based on chosen location
+path=&quot;$LOCATION/$BRANCH_NAME&quot;
+
+git worktree add &quot;$path&quot; -b &quot;$BRANCH_NAME&quot;
+cd &quot;$path&quot;
+```
+
+**Sandbox fallback:** If `git worktree add` fails with a permission error (sandbox denial), tell the user the sandbox blocked worktree creation and you're working in the current directory instead. Then run setup and baseline tests in place.
+
+### Step 2: Project Setup
+
+Auto-detect and run appropriate setup:
+
+```bash
+# Node.js
+if [ -f package.json ]; then npm install; fi
+
+# Rust
+if [ -f Cargo.toml ]; then cargo build; fi
+
+# Python — detect the installer. pyproject.toml alone is not Poetry.
+if [ -f poetry.lock ] || grep -q '^\[tool\.poetry\]' pyproject.toml 2&gt;/dev/null; then
+  poetry install
+elif [ -f uv.lock ]; then
+  uv sync
+elif [ -f pdm.lock ]; then
+  pdm install
+elif [ -f Pipfile.lock ]; then
+  pipenv install
+elif [ -f requirements.txt ]; then
+  pip install -r requirements.txt
+elif [ -f pyproject.toml ]; then
+  echo &quot;pyproject.toml found but the installer is unclear. Ask the human how to install dependencies; do not run poetry/uv/pip automatically.&quot;
+fi
+
+# Go
+if [ -f go.mod ]; then go mod download; fi
+```
+
+### Step 3: Verify Clean Baseline
+
+Run tests to ensure workspace starts clean:
+
+```bash
+# Use project-appropriate command
+npm test / cargo test / pytest / go test ./...
+```
+
+**If tests fail:** Report failures, ask whether to proceed or investigate.
+
+**If tests pass:** Report ready.
+
+#### Report
+
+```
+Worktree ready at &lt;full-path&gt;
+Tests passing (&lt;N&gt; tests, 0 failures)
+Ready to implement &lt;feature-name&gt;
+```
+
+## Attach
+
+Use only when the caller named an existing branch. For stacked PR review the target is `sdd-stack/task-N`.
+
+**Announce at start:** &quot;I'm using the using-git-worktrees skill to attach to an existing branch.&quot;
+
+Do not ask the execute isolation prompt. Do not use `-b`. Do not use a native worktree tool if it would create a new branch. Use git.
+
+N is the integer in `sdd-stack/task-N`. `LOCATION` uses the same Directory Selection and Safety Verification as isolate Step 1b. The worktree path is `$LOCATION/sdd-stack-task-N`.
+
+Resolve the checkout in this order. Stop at the first match.
+
+1. If `git branch --show-current` equals the target branch, stay. Run Project Setup (isolate Step 2). Do not run isolate Step 3 as a gate. Do not add a second worktree for this branch. Report the current path.
+2. Else if `&quot;$LOCATION/sdd-stack-task-N&quot;` exists, is a git worktree, and `git -C &quot;$LOCATION/sdd-stack-task-N&quot; branch --show-current` equals the target, `cd` there. Run Project Setup. Report that path.
+3. Else create:
+
+```bash
+git worktree add &quot;$LOCATION/sdd-stack-task-N&quot; &quot;sdd-stack/task-N&quot;
+cd &quot;$LOCATION/sdd-stack-task-N&quot;
+```
+
+Then run Project Setup. Do not require a green isolate baseline before returning. After sdd-review-fix implements, tests must pass before push (that is sdd-review-fix, not this step).
+
+If `git worktree add` fails because the branch is already checked out, read `git worktree list --porcelain`. If a worktree has `branch refs/heads/sdd-stack/task-N`, continue in that path (step 1 or 2). If that path cannot be used, stop. Do not `git worktree add -b` to dodge the lock.
+
+**Sandbox / permission failure:** If add fails and the current checkout is not the target branch, stop. Tell the human attach failed. Do not work in place. Isolate sandbox fallback does not apply.
+
+Do not delete the review worktree.
+
+#### Attach report
+
+```
+Review worktree attached at &lt;full-path&gt; on &lt;branch&gt;
+```
+
+## Quick Reference
+
+| Situation | Action |
+|---|---|
+| Isolate, already in linked worktree | Skip isolate creation (Step 0) |
+| Isolate, in a submodule | Treat as normal repo (Step 0 guard) |
+| Isolate, native worktree tool available | Use it (Step 1a) |
+| Isolate, no native tool | Git worktree fallback with `-b` (Step 1b) |
+| Isolate, permission error on create | Sandbox fallback, work in place |
+| Attach | Never `-b`. Never native tools that create a branch |
+| Attach, already on target branch | Stay, setup, do not add another worktree |
+| Attach, `$LOCATION/sdd-stack-task-N` exists for that branch | Reuse it |
+| Attach, else | `git worktree add &quot;$LOCATION/sdd-stack-task-N&quot; &quot;sdd-stack/task-N&quot;` |
+| Attach, add fails and current branch is not the target | Stop. Do not work in place |
+| `.worktrees/` exists | Use it (verify ignored) |
+| `worktrees/` exists | Use it (verify ignored) |
+| Both exist | Use `.worktrees/` |
+| Neither exists | Check instruction file, then default `.worktrees/` |
+| Directory not ignored | Add `$LOCATION` to .gitignore + commit |
+| Tests fail during isolate baseline | Report failures + ask |
+| No package.json/Cargo.toml | Skip dependency install |
+
+## Common Rationalizations
+
+| Excuse | Reality |
+|--------|---------|
+| &quot;I'm obviously not in a worktree — no need to check&quot; | Run isolate Step 0. Harness-created isolation and submodules both fool eyeballing; the detection commands settle it. |
+| &quot;`git worktree add` is quicker than hunting for a native tool&quot; | For isolate, a native tool owns placement. For attach, native tools that create a new branch are forbidden — use `git worktree add &lt;path&gt; &lt;existing-branch&gt;`. |
+| &quot;The worktree directory is surely ignored already&quot; | Run `git check-ignore`. An unignored worktree directory commits the whole tree into the repo. |
+| &quot;Any directory name works&quot; | Explicit instructions beat an existing project-local directory, which beats the `.worktrees/` default. Attach paths are `$LOCATION/sdd-stack-task-N`. |
+| &quot;The workspace is fresh — baseline tests can wait&quot; | Isolate: a dirty baseline makes every later failure ambiguous. Attach: do not require a green baseline before the review fix; sdd-review-fix tests after the fix. |
+| &quot;Attach failed, I'll edit in this checkout&quot; | If this checkout is not the target stack branch, stop. In-place fallback is isolate-only. |
+| &quot;Already in a worktree, so I must not attach another&quot; | Isolate skips a second isolate worktree. Attach of a different branch is allowed. |
+</code></pre>
+<p>Run:</p>
+<pre><code class="language-bash">test -f skills/using-git-worktrees/SKILL.md
+grep -F 'git worktree add &quot;$path&quot; -b &quot;$BRANCH_NAME&quot;' skills/using-git-worktrees/SKILL.md
+grep -F 'git worktree add &quot;$LOCATION/sdd-stack-task-N&quot; &quot;sdd-stack/task-N&quot;' skills/using-git-worktrees/SKILL.md
+grep -F 'Never use -b during attach' skills/using-git-worktrees/SKILL.md
+grep -F 'Do not work in place' skills/using-git-worktrees/SKILL.md
+python3 -m pytest -q
+</code></pre>
+<p>Expect: both <code>git worktree add</code> lines present, pytest pass (scripts unchanged).</p>
+<pre><code class="language-bash">git add skills/using-git-worktrees/SKILL.md
+git commit -m &quot;Add worktree attach so stacked PR reviews checkout existing branches.&quot;
+</code></pre>
+</section>
+<section>
+<h2 id="task-2-sdd-review-fix-skill">Task 2: sdd-review-fix skill</h2>
+<p>Create <code>skills/sdd-review-fix/SKILL.md</code> as exactly:</p>
+<pre><code class="language-markdown">---
+name: sdd-review-fix
+description: Apply one GitHub review to an open stacked PR whose head is sdd-stack/task-N. Use after sdd-finish option 4 when the human names that PR or task. Do not use during sdd-execute. Do not use for finish option 2 (single PR).
+---
+
+# SDD Review Fix
+
+Announce: &quot;I'm using sdd-review-fix.&quot;
+
+One open stacked PR per run. Do not poll GitHub. The human names the Task number or the PR.
+
+## Stop first
+
+If the request is any of the following, stop. Do not touch git. Do not create a branch.
+
+- Merge (`gh pr merge` or landing PRs yourself). Tell the human to land from the bottom on GitHub (Task 1, then 2, then N). If they asked to merge PR N+1 while PR N is still open, say that too.
+- Create a branch or a PR, `--force`, rebase, restack, amend, or re-run `stack-prs`.
+- Fix two or more PRs in this run.
+- Resolve a land conflict by restacking. Return it to the human.
+
+Do not call `gh pr create` or `gh pr merge` at any later step.
+
+## Evaluate
+
+Use receiving-code-review. Do not implement unsound items.
+
+## Confirm the PR
+
+If they named a PR number:
+
+```bash
+gh pr view &lt;n&gt; --json headRefName,state
+```
+
+If they named Task N:
+
+```bash
+gh pr list --head sdd-stack/task-N --state open --json number,headRefName,state
+```
+
+Stop unless the PR is open and `headRefName` is `sdd-stack/task-N`. If `headRefName` is `owner:sdd-stack/task-N`, accept it only when the ref after the colon is `sdd-stack/task-N`. Any other head: stop. Do not touch git.
+
+## Checkout
+
+Use using-git-worktrees **Attach** with target `sdd-stack/task-N`. That skill implements current → reuse → `git worktree add &quot;$LOCATION/sdd-stack-task-N&quot; &quot;sdd-stack/task-N&quot;` with no `-b`. Do not ask the execute isolation prompt.
+
+If the review checkout is dirty, stop and ask the human to commit or stash. Do not switch to the tip.
+
+If attach fails and this checkout is not `sdd-stack/task-N`, stop. Do not edit in place.
+
+An implementation worktree on another branch may stay.
+
+## Implement
+
+In the review checkout, implement one review item at a time. Test each. Commit on `sdd-stack/task-N`.
+
+Do not update `.sdd/progress.md` Task complete lines.
+
+After the fixes, run the tests again in that checkout. If they fail, do not push.
+
+## Push
+
+```bash
+git push origin sdd-stack/task-N
+```
+
+No `--force`. Do not push `main`. If the push is not a fast-forward, stop. Do not force.
+
+Do not run `stack-prs`.
+
+## Close
+
+Tell the human to land from the bottom on GitHub. Do not merge. Do not delete the review worktree. Reuse it on the next review round for this PR.
+</code></pre>
+<p>Run:</p>
+<pre><code class="language-bash">test -f skills/sdd-review-fix/SKILL.md
+grep -F &quot;I'm using sdd-review-fix.&quot; skills/sdd-review-fix/SKILL.md
+grep -F 'git push origin sdd-stack/task-N' skills/sdd-review-fix/SKILL.md
+grep -F 'Do not call `gh pr create` or `gh pr merge`' skills/sdd-review-fix/SKILL.md
+python3 -m pytest -q
+</code></pre>
+<pre><code class="language-bash">git add skills/sdd-review-fix/SKILL.md
+git commit -m &quot;Add sdd-review-fix so stacked PR reviews update stack heads in place.&quot;
+</code></pre>
+</section>
+<section>
+<h2 id="task-3-route-finish-pointer-and-readme">Task 3: Route, finish pointer, and README</h2>
+<p>Keep each edit surgical. Do not rewrite whole files.</p>
+<h3 id="skillssddskillmd"><code>skills/sdd/SKILL.md</code></h3>
+<p>In the frontmatter <code>description</code>, change <code>sdd-design, sdd-plan, sdd-execute, sdd-goal, or sdd-finish</code> to <code>sdd-design, sdd-plan, sdd-execute, sdd-goal, sdd-finish, or sdd-review-fix</code>.</p>
+<p>In the Route table, after the <code>sdd-finish</code> row, add:</p>
+<pre><code class="language-markdown">| GitHub review on a stacked PR (`sdd-stack/task-N`) | sdd-review-fix |
+</code></pre>
+<p>Change the using-git-worktrees row to:</p>
+<pre><code class="language-markdown">| Isolated workspace / git worktree (after the human said yes) | using-git-worktrees isolate |
+| Checkout of an existing stack branch for a stacked-PR review | using-git-worktrees attach (from sdd-review-fix) |
+</code></pre>
+<h3 id="skillssdd-finishskillmd"><code>skills/sdd-finish/SKILL.md</code></h3>
+<p>Immediately after the paragraph that starts <code>If the command exits non-zero, report any PR URLs</code> (option 4), add:</p>
+<pre><code class="language-markdown">After option 4 succeeds, later GitHub review fixes use sdd-review-fix. Land stacked PRs from the bottom on GitHub. Do not merge, restack, or create review worktrees from finish.
+</code></pre>
+<h3 id="skillsreceiving-code-reviewskillmd"><code>skills/receiving-code-review/SKILL.md</code></h3>
+<p>Immediately after the <code>**Core principle:**</code> line, add:</p>
+<pre><code class="language-markdown">If the pull request head is a stack branch (`sdd-stack/task-N`), git operations (worktree, commit, push) are sdd-review-fix. This skill does not create branches.
+</code></pre>
+<h3 id="skillssdd-executeskillmd"><code>skills/sdd-execute/SKILL.md</code></h3>
+<p>Replace the line <code>Do not use using-git-worktrees for Task implementer subagents. </code>[WORKDIR]<code> is this chosen checkout.</code> with:</p>
+<pre><code class="language-markdown">Do not use using-git-worktrees for Task implementer subagents. Do not attach review worktrees. Isolate only, and only after the human said yes. `[WORKDIR]` is this chosen checkout.
+</code></pre>
+<h3 id="readmemd"><code>README.md</code></h3>
+<p>In Claude Code invoke list, add <code>/sdd:sdd-review-fix</code>. In Cursor invoke sentence, add <code>/sdd-review-fix</code>.</p>
+<p>After the pipeline paragraph about <code>sdd-finish</code>, add:</p>
+<pre><code class="language-markdown">After stacked PRs exist, GitHub review fixes use `sdd-review-fix` (existing `sdd-stack/task-N` only). Land from the bottom on GitHub.
+</code></pre>
+<p>In the supporting skills table, change the using-git-worktrees row to:</p>
+<pre><code class="language-markdown">| using-git-worktrees | Isolate: optional before implementation. Attach: existing `sdd-stack/task-N` from sdd-review-fix (`-b` forbidden) |
+</code></pre>
+<p>Add a pipeline-adjacent row above the supporting table, as a new small table after the sdd-goal paragraph:</p>
+<pre><code class="language-markdown">| Skill | When |
+|---|---|
+| sdd-review-fix | GitHub review on an open stacked PR after finish option 4 |
+</code></pre>
+<p>In Manual check, add item 4:</p>
+<pre><code class="language-markdown">4. After stacked PRs exist, `/sdd-review-fix` (Claude Code: `/sdd:sdd-review-fix`) is visible. Confirm the skill forbids `-b`, `gh pr merge`, and `stack-prs` re-run.
+</code></pre>
+<h3 id="docssuperpowersspecs2026-08-28-sdd-framework-designmd"><code>docs/superpowers/specs/2026-08-28-sdd-framework-design.md</code></h3>
+<p>Immediately after the sentence <code>ブランチ名は </code>sdd-stack/task-N<code>。Task 1 の PR の base は確認済み base branch。Task N の PR の base は </code>sdd-stack/task-(N-1)<code>。途中失敗時は、作れた PR の URL と未作成 Task を報告する。</code> add:</p>
+<pre><code class="language-markdown">公開後の GitHub レビュー修正は `docs/sdd/specs/2026-09-01-stacked-pr-review-fix-design.md` が正。既存の stack branch に attach し、restack しない。
+</code></pre>
+<p>If that spec file is also rendered to HTML in-repo, run:</p>
+<pre><code class="language-bash">python3 scripts/render-docs docs/superpowers/specs/2026-08-28-sdd-framework-design.md
+</code></pre>
+<p>If HTML fails, warn and continue. If no HTML sibling exists for that spec, do not create a new HTML layout; skip render.</p>
+<p>Run:</p>
+<pre><code class="language-bash">grep -F 'sdd-review-fix' skills/sdd/SKILL.md
+grep -F 'later GitHub review fixes use sdd-review-fix' skills/sdd-finish/SKILL.md
+grep -F 'git operations (worktree, commit, push) are sdd-review-fix' skills/receiving-code-review/SKILL.md
+grep -F 'Do not attach review worktrees' skills/sdd-execute/SKILL.md
+grep -F 'sdd-review-fix' README.md
+grep -F '2026-09-01-stacked-pr-review-fix-design.md' docs/superpowers/specs/2026-08-28-sdd-framework-design.md
+python3 -m pytest -q
+</code></pre>
+<pre><code class="language-bash">git add skills/sdd/SKILL.md skills/sdd-finish/SKILL.md skills/receiving-code-review/SKILL.md skills/sdd-execute/SKILL.md README.md docs/superpowers/specs/2026-08-28-sdd-framework-design.md
+</code></pre>
+<p>If a matching HTML file was regenerated, add it too.</p>
+<pre><code class="language-bash">git commit -m &quot;Route stacked PR reviews to sdd-review-fix and point finish at land.&quot;
+</code></pre>
+</section>
+
+</main>
+</body>
+</html>
