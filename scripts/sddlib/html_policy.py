@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 import hashlib
 from html.parser import HTMLParser
+import json
 import os
 from pathlib import Path
 import re
@@ -1455,3 +1456,390 @@ validate_companion = validate_html
 validate_target = validate_html
 validate_authored_html = validate_html
 validate_document = validate_html
+
+
+@dataclass(frozen=True)
+class GitChange:
+    """One entry from ``git diff --name-status -z``."""
+
+    status: str
+    paths: tuple[str, ...]
+
+
+@dataclass
+class _PairChange:
+    target: Target
+    roles: set[str] = field(default_factory=set)
+    deleted: set[str] = field(default_factory=set)
+    moved: set[str] = field(default_factory=set)
+
+
+def _freshness_result(
+    decision: str,
+    message: str,
+    paths: Iterable[str],
+    expected_digests: dict[str, str],
+    violations: Iterable[dict[str, str]] = (),
+    warnings: Iterable[dict[str, str]] = (),
+) -> PolicyResult:
+    return {
+        "decision": decision,
+        "message": message,
+        "paths": list(paths),
+        "expected_digests": dict(expected_digests),
+        "violations": list(violations),
+        "warnings": list(warnings),
+    }
+
+
+def _change_parts(change: GitChange) -> tuple[str, tuple[str, ...]]:
+    if not isinstance(change, GitChange):
+        raise PolicyInputError("Git changes must be GitChange values")
+    if not change.status:
+        raise PolicyInputError("Git change status must not be empty")
+    if change.status[0] in {"R", "C"}:
+        if len(change.paths) != 2:
+            raise PolicyInputError(
+                f"{change.status} changes must contain old and new paths"
+            )
+    elif len(change.paths) != 1:
+        raise PolicyInputError(
+            f"{change.status} changes must contain exactly one path"
+        )
+    if any(not isinstance(path, str) or not path for path in change.paths):
+        raise PolicyInputError("Git change paths must be non-empty text")
+    return change.status[0], change.paths
+
+
+def _add_pair_change(
+    pairs: dict[str, _PairChange],
+    target: Target,
+    role: str,
+    *,
+    deleted: bool = False,
+    moved: bool = False,
+) -> _PairChange:
+    pair = pairs.setdefault(target.source_relative, _PairChange(target))
+    pair.roles.add(role)
+    if deleted:
+        pair.deleted.add(role)
+    if moved:
+        pair.moved.add(role)
+    return pair
+
+
+def _target_role(root: Path, raw_path: str) -> tuple[Target, str] | None:
+    _resolved, relative = _path_and_relative(root, raw_path)
+    target = _target_from_relative(root, relative)
+    if target is None:
+        return None
+    role = "source" if relative.as_posix() == target.source_relative else "companion"
+    return target, role
+
+
+def check_freshness(
+    repo_root: PathInput,
+    changes: Iterable[GitChange],
+) -> PolicyResult:
+    """Check changed target pairs using current source and companion bytes.
+
+    ``changes`` contains only Git status information. It identifies which pairs
+    need checking; ``validate_html`` supplies all freshness and document
+    evidence from the current checkout.
+    """
+
+    root = _repository_root(repo_root)
+    try:
+        change_values = list(changes)
+    except TypeError as exc:
+        raise PolicyInputError("Git changes must be a sequence") from exc
+
+    pairs: dict[str, _PairChange] = {}
+    renames: list[tuple[Target, str, Target, str]] = []
+    for change in change_values:
+        code, raw_paths = _change_parts(change)
+        if code in {"R", "C"}:
+            old = _target_role(root, raw_paths[0])
+            new = _target_role(root, raw_paths[1])
+            if old is None and new is None:
+                continue
+            if old is None or new is None:
+                if old is not None:
+                    _add_pair_change(
+                        pairs, old[0], old[1], deleted=True, moved=True
+                    )
+                if new is not None:
+                    _add_pair_change(pairs, new[0], new[1], moved=True)
+                continue
+            if old[1] != new[1]:
+                _add_pair_change(pairs, old[0], old[1], deleted=True, moved=True)
+                _add_pair_change(pairs, new[0], new[1], moved=True)
+                continue
+            _add_pair_change(pairs, old[0], old[1], deleted=True, moved=True)
+            _add_pair_change(pairs, new[0], new[1], moved=True)
+            renames.append((old[0], old[1], new[0], new[1]))
+            continue
+
+        target_role = _target_role(root, raw_paths[0])
+        if target_role is None:
+            continue
+        target, role = target_role
+        _add_pair_change(pairs, target, role, deleted=code == "D")
+
+    handled_move_sources: set[str] = set()
+    violations: list[dict[str, str]] = []
+    warnings: list[dict[str, str]] = []
+    expected_digests: dict[str, str] = {}
+    affected_paths: list[str] = []
+
+    move_groups: dict[tuple[str, str], set[str]] = {}
+    move_targets: dict[tuple[str, str], tuple[Target, Target]] = {}
+    for old, old_role, new, new_role in renames:
+        key = (old.source_relative, new.source_relative)
+        move_groups.setdefault(key, set()).add(old_role)
+        move_targets[key] = (old, new)
+
+    for key, roles in move_groups.items():
+        old, new = move_targets[key]
+        if roles != {"source", "companion"}:
+            violations.append(
+                _issue(
+                    "one-sided-rename",
+                    f"Target pair movement must include both {old.source_relative} "
+                    f"and {old.companion_relative} to move to "
+                    f"{new.source_relative} and {new.companion_relative}.",
+                    old.source_relative,
+                )
+            )
+            continue
+        handled_move_sources.add(key[0])
+
+    for source_relative in sorted(pairs):
+        pair = pairs[source_relative]
+        target = pair.target
+        companion_relative = target.companion_relative
+        affected_paths.extend((source_relative, companion_relative))
+        source_digest = _file_digest(target.source_path)
+        if source_digest is not None:
+            expected_digests[companion_relative] = f"sha256:{source_digest}"
+
+        if source_relative in handled_move_sources:
+            continue
+        if target.source_relative != source_relative:
+            continue
+
+        if pair.deleted == {"source", "companion"}:
+            continue
+        if pair.deleted:
+            violations.append(
+                _issue(
+                    "one-sided-delete",
+                    f"Target pair deletion must include both {source_relative} "
+                    f"and {companion_relative}.",
+                    source_relative,
+                )
+            )
+            continue
+        if pair.roles != {"source", "companion"}:
+            if pair.roles == {"source"}:
+                code = "markdown-only"
+                message = (
+                    f"Markdown-only change for {source_relative}; change "
+                    f"{companion_relative} with the current source digest."
+                )
+            else:
+                code = "html-only"
+                message = (
+                    f"HTML-only change for {companion_relative}; its Markdown "
+                    f"source {source_relative} must change in the same commit."
+                )
+            violations.append(_issue(code, message, source_relative))
+            continue
+
+        validation = validate_html(root, target.source_path, target.companion_path)
+        expected_digests.update(validation["expected_digests"])  # type: ignore[arg-type]
+        violations.extend(validation["violations"])  # type: ignore[arg-type]
+        warnings.extend(validation["warnings"])  # type: ignore[arg-type]
+
+    unique_paths = list(dict.fromkeys(affected_paths))
+    if violations:
+        message = "HTML freshness check failed: " + " ".join(
+            item["message"] for item in violations
+        )
+        decision = "deny"
+    elif unique_paths:
+        message = "All affected HTML companions are fresh and valid."
+        decision = "allow"
+    else:
+        message = "No synchronized target documents are affected."
+        decision = "allow"
+    return _freshness_result(
+        decision,
+        message,
+        unique_paths,
+        expected_digests,
+        violations,
+        warnings,
+    )
+
+
+def bootstrap_documents(
+    repo_root: PathInput,
+    paths: Iterable[PathInput],
+) -> PolicyResult:
+    """Return bounded bootstrap permissions for explicit existing sources."""
+
+    root = _repository_root(repo_root)
+    values = _path_values(paths, "paths")
+    if not values:
+        raise PolicyInputError("bootstrap requires at least one Target Markdown path")
+
+    targets: dict[str, Target] = {}
+    for raw_path in values:
+        _resolved, relative = _path_and_relative(root, raw_path)
+        target = _target_from_relative(root, relative)
+        if target is None or relative.as_posix() != target.source_relative:
+            raise PolicyInputError(
+                f"bootstrap path must name a Target Markdown document: {raw_path}"
+            )
+        if not target.source_path.is_file():
+            raise PolicyInputError(
+                f"bootstrap source does not exist: {target.source_relative}"
+            )
+        targets[target.source_relative] = target
+
+    selected = [
+        target
+        for source_relative, target in sorted(targets.items())
+        if read_digest_metadata(target.companion_path).status is DigestStatus.MISSING
+    ]
+    expected_digests = {
+        target.companion_relative: f"sha256:{sha256_file(target.source_path)}"
+        for target in selected
+    }
+    affected_paths = [
+        relative
+        for target in selected
+        for relative in (target.source_relative, target.companion_relative)
+    ]
+    if selected:
+        message = "Bootstrap authoring permitted for the requested missing companions."
+    else:
+        message = "No requested Target companion requires bootstrap."
+    return _freshness_result(
+        "allow",
+        message,
+        affected_paths,
+        expected_digests,
+    )
+
+
+def _registration_status(
+    root: Path,
+    host: str,
+    relative: str,
+) -> dict[str, str]:
+    path = root / relative
+    item = {"host": host, "status": "missing", "path": relative, "message": ""}
+    if not path.exists():
+        item["message"] = f"{host} registration is missing: {relative}."
+        return item
+    try:
+        content = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        item["status"] = "unreadable"
+        item["message"] = f"{host} registration cannot be read: {relative}."
+        return item
+
+    if path.suffix == ".json":
+        try:
+            parsed: object = json.loads(content)
+        except json.JSONDecodeError:
+            item["status"] = "incompatible"
+            item["message"] = f"{host} registration is not valid JSON: {relative}."
+            return item
+        serialized = json.dumps(parsed, sort_keys=True)
+        if (
+            (isinstance(parsed, dict) and parsed.get("enabled") is False)
+            or (isinstance(parsed, dict) and parsed.get("disabled") is True)
+            or '"status": "disabled"' in serialized
+        ):
+            item["status"] = "disabled"
+            item["message"] = f"{host} registration is disabled: {relative}."
+            return item
+        if host == "cursor":
+            hooks = parsed.get("hooks") if isinstance(parsed, dict) else None
+            required = {"preToolUse", "afterFileEdit", "stop"}
+            valid_hooks = isinstance(hooks, dict) and required <= set(hooks)
+            commands = serialized.count("adapters/cursor/html_docs_hook.py")
+            valid = (
+                valid_hooks
+                and isinstance(parsed, dict)
+                and parsed.get("failClosed") is True
+                and commands >= 3
+                and (root / "adapters/cursor/html_docs_hook.py").is_file()
+                and os.access(root / "adapters/cursor/html_docs_hook.py", os.X_OK)
+            )
+        else:
+            valid = (
+                "PreToolUse" in serialized
+                and "PostToolUse" in serialized
+                and "adapters/claude/html_docs_hook.py" in serialized
+                and (root / "adapters/claude/html_docs_hook.py").is_file()
+                and os.access(root / "adapters/claude/html_docs_hook.py", os.X_OK)
+            )
+        if not valid:
+            item["status"] = "incompatible"
+            item["message"] = f"{host} registration is incompatible: {relative}."
+            return item
+    else:
+        if (
+            "tool.execute.before" not in content
+            or "file.edited" not in content
+            or "export" not in content
+        ):
+            item["status"] = "incompatible"
+            item["message"] = f"{host} registration is incompatible: {relative}."
+            return item
+        if "enabled = false" in content or "enabled: false" in content:
+            item["status"] = "disabled"
+            item["message"] = f"{host} registration is disabled: {relative}."
+            return item
+
+    item["status"] = "enabled"
+    item["message"] = f"{host} registration is enabled."
+    return item
+
+
+def check_registrations(repo_root: PathInput) -> PolicyResult:
+    """Report explicit Cursor, Claude Code, and OpenCode registrations."""
+
+    root = _repository_root(repo_root)
+    registrations = [
+        _registration_status(root, "cursor", ".cursor/hooks.json"),
+        _registration_status(root, "claude", ".claude/hooks.json"),
+        _registration_status(root, "opencode", ".opencode/plugins/html_docs_plugin.ts"),
+    ]
+    paths = [item["path"] for item in registrations]
+    failed = [item for item in registrations if item["status"] != "enabled"]
+    if failed:
+        message = "Host registration check failed: " + " ".join(
+            item["message"] for item in failed
+        )
+        decision = "deny"
+    else:
+        message = "Cursor, Claude Code, and OpenCode registrations are enabled."
+        decision = "allow"
+    return {
+        "decision": decision,
+        "message": message,
+        "paths": paths,
+        "expected_digests": {},
+        "registrations": registrations,
+    }
+
+
+# Explicit aliases keep the policy entry points discoverable to future adapters.
+check_tree = check_freshness
+bootstrap = bootstrap_documents
+doctor = check_registrations
