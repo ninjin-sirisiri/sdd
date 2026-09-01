@@ -61,6 +61,27 @@ def test_resolver_accepts_absolute_paths_and_rejects_escape(tmp_path: Path) -> N
         resolve_target(tmp_path, tmp_path.parent / "CONTEXT.md")
 
 
+def test_target_symlink_keeps_lexical_name_for_policy_checks(tmp_path: Path) -> None:
+    destination = tmp_path / "source-destination.md"
+    destination.write_bytes(b"# Context\n")
+    source = tmp_path / "CONTEXT.md"
+    source.symlink_to(destination)
+
+    target = resolve_target(tmp_path, source)
+    assert target is not None
+    assert target.source_relative == "CONTEXT.md"
+    assert target.source_path == source
+
+    result = check_edit(tmp_path, [source])
+    assert result["decision"] == "allow"
+    assert result["paths"] == ["CONTEXT.md", "CONTEXT.html"]
+
+    source.unlink()
+    source.symlink_to(tmp_path.parent / "outside.md")
+    with pytest.raises(PathOutsideRepository):
+        resolve_target(tmp_path, source)
+
+
 def test_sha256_preserves_crlf_trailing_whitespace_and_final_newline(tmp_path: Path) -> None:
     content = b"# Context\r\nvalue with trailing spaces  \r\nlast line"
     path = _write_source(tmp_path, content=content)

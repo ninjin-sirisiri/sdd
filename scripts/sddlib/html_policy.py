@@ -150,8 +150,12 @@ def _path_and_relative(root: Path, raw_path: PathInput) -> tuple[Path, Path]:
     try:
         supplied = Path(value)
         candidate = supplied if supplied.is_absolute() else root / supplied
+        # Keep the lexical name for target classification; resolve separately
+        # so symlinks cannot escape the repository containment check.
+        lexical = Path(os.path.abspath(candidate))
+        relative = lexical.relative_to(root)
         resolved = candidate.resolve(strict=False)
-        relative = resolved.relative_to(root)
+        resolved.relative_to(root)
     except ValueError as exc:
         raise PathOutsideRepository(f"path is outside repository: {value}") from exc
     except (OSError, RuntimeError) as exc:
