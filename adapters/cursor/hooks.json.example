@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "failClosed": true,
+  "hooks": {
+    "preToolUse": [
+      { "command": "adapters/cursor/html_docs_hook.py", "failClosed": true }
+    ],
+    "afterFileEdit": [
+      { "command": "adapters/cursor/html_docs_hook.py", "failClosed": true }
+    ],
+    "stop": [
+      { "command": "adapters/cursor/html_docs_hook.py", "failClosed": true }
+    ]
+  }
+}

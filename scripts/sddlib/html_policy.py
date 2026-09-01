@@ -1616,36 +1616,82 @@ def _registration_status(
             item["status"] = "incompatible"
             item["message"] = f"{host} registration is not valid JSON: {relative}."
             return item
-        serialized = json.dumps(parsed, sort_keys=True)
+        if not isinstance(parsed, dict):
+            item["status"] = "incompatible"
+            item["message"] = f"{host} registration is incompatible: {relative}."
+            return item
         if (
-            (isinstance(parsed, dict) and parsed.get("enabled") is False)
-            or (isinstance(parsed, dict) and parsed.get("disabled") is True)
-            or '"status": "disabled"' in serialized
+            parsed.get("enabled") is False
+            or parsed.get("disabled") is True
+            or parsed.get("status") == "disabled"
         ):
             item["status"] = "disabled"
             item["message"] = f"{host} registration is disabled: {relative}."
             return item
+
+        def executable(relative_path: str) -> bool:
+            candidate = root / relative_path
+            return candidate.is_file() and os.access(candidate, os.X_OK)
+
+        def has_command(value: object, expected: set[str]) -> bool:
+            if isinstance(value, dict):
+                return any(
+                    (
+                        key == "command"
+                        and isinstance(command, str)
+                        and command in expected
+                    )
+                    or has_command(command, expected)
+                    for key, command in value.items()
+                )
+            if isinstance(value, list):
+                return any(has_command(entry, expected) for entry in value)
+            return False
+
         if host == "cursor":
-            hooks = parsed.get("hooks") if isinstance(parsed, dict) else None
-            required = {"preToolUse", "afterFileEdit", "stop"}
-            valid_hooks = isinstance(hooks, dict) and required <= set(hooks)
-            commands = serialized.count("adapters/cursor/html_docs_hook.py")
+            hooks = parsed.get("hooks")
+            required = ("preToolUse", "afterFileEdit", "stop")
+            valid_hooks = (
+                isinstance(hooks, dict)
+                and all(
+                    isinstance(hooks.get(name), list)
+                    and has_command(
+                        hooks[name], {"adapters/cursor/html_docs_hook.py"}
+                    )
+                    for name in required
+                )
+            )
             valid = (
-                valid_hooks
-                and isinstance(parsed, dict)
-                and parsed.get("failClosed") is True
-                and commands >= 3
-                and (root / "adapters/cursor/html_docs_hook.py").is_file()
-                and os.access(root / "adapters/cursor/html_docs_hook.py", os.X_OK)
+                parsed.get("failClosed") is True
+                and valid_hooks
+                and executable("adapters/cursor/html_docs_hook.py")
             )
         else:
-            valid = (
-                "PreToolUse" in serialized
-                and "PostToolUse" in serialized
-                and "adapters/claude/html_docs_hook.py" in serialized
-                and (root / "adapters/claude/html_docs_hook.py").is_file()
-                and os.access(root / "adapters/claude/html_docs_hook.py", os.X_OK)
+            hooks = parsed.get("hooks")
+            modern = (
+                isinstance(hooks, dict)
+                and all(
+                    isinstance(hooks.get(name), list)
+                    and has_command(
+                        hooks[name],
+                        {
+                            "${CLAUDE_PLUGIN_ROOT}/adapters/claude/html_docs_hook.py",
+                            "adapters/claude/html_docs_hook.py",
+                        },
+                    )
+                    for name in ("PreToolUse", "PostToolUse")
+                )
             )
+            # Keep accepting the explicit project registration shape used by
+            # consumers that register one command for both Claude events.
+            events = parsed.get("events")
+            legacy = (
+                parsed.get("command") == "adapters/claude/html_docs_hook.py"
+                and isinstance(events, list)
+                and all(isinstance(event, str) for event in events)
+                and {"PreToolUse", "PostToolUse"} <= set(events)
+            )
+            valid = (modern or legacy) and executable("adapters/claude/html_docs_hook.py")
         if not valid:
             item["status"] = "incompatible"
             item["message"] = f"{host} registration is incompatible: {relative}."
@@ -1673,9 +1719,12 @@ def check_registrations(repo_root: PathInput) -> PolicyResult:
     """Report explicit Cursor, Claude Code, and OpenCode registrations."""
 
     root = _repository_root(repo_root)
+    claude_path = ".claude/hooks.json"
+    if not (root / claude_path).exists() and (root / "hooks/hooks.json").exists():
+        claude_path = "hooks/hooks.json"
     registrations = [
         _registration_status(root, "cursor", ".cursor/hooks.json"),
-        _registration_status(root, "claude", ".claude/hooks.json"),
+        _registration_status(root, "claude", claude_path),
         _registration_status(root, "opencode", ".opencode/plugins/html_docs_plugin.ts"),
     ]
     paths = [item["path"] for item in registrations]

@@ -1,0 +1,9 @@
+{
+  "tool": "write",
+  "output": {
+    "args": {
+      "path": "CONTEXT.html",
+      "bootstrap_paths": ["CONTEXT.html"]
+    }
+  }
+}

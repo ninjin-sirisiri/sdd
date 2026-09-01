@@ -1,0 +1,7 @@
+{
+  "hook_event_name": "unknownEvent",
+  "tool_name": "Write",
+  "tool_input": {
+    "file_path": "CONTEXT.md"
+  }
+}
