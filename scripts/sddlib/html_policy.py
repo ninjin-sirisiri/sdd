@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 import hashlib
@@ -152,8 +152,12 @@ def _path_and_relative(root: Path, raw_path: PathInput) -> tuple[Path, Path]:
     try:
         supplied = Path(value)
         candidate = supplied if supplied.is_absolute() else root / supplied
+        # Keep the lexical name for target classification; resolve separately
+        # so symlinks cannot escape the repository containment check.
+        lexical = Path(os.path.abspath(candidate))
+        relative = lexical.relative_to(root)
         resolved = candidate.resolve(strict=False)
-        relative = resolved.relative_to(root)
+        resolved.relative_to(root)
     except ValueError as exc:
         raise PathOutsideRepository(f"path is outside repository: {value}") from exc
     except (OSError, RuntimeError) as exc:
@@ -324,6 +328,16 @@ def _file_digest(path: Path) -> str | None:
         return sha256_file(path)
     except (FileNotFoundError, IsADirectoryError, OSError):
         return None
+
+
+def _content_bytes(
+    path: Path,
+    relative: str,
+    file_contents: Mapping[str, bytes] | None,
+) -> bytes:
+    if file_contents is not None and relative in file_contents:
+        return file_contents[relative]
+    return path.read_bytes()
 
 
 def check_edit(
@@ -499,15 +513,30 @@ _CSP_REQUIRED = {
     "form-action": {"'none'"},
     "frame-ancestors": {"'none'"},
 }
+_CSP_DEFENSIVE_EXTRAS = {
+    "script-src": {"'none'"},
+    "connect-src": {"'none'"},
+}
 _MD_FENCE_OPEN_RE = re.compile(r"^( {0,3})(`{3,}|~{3,})(.*)$")
 _MD_FENCE_CLOSE_RE = re.compile(r"^( {0,3})(`{3,}|~{3,})[ \t]*$")
 _MD_HEADING_RE = re.compile(r"^ {0,3}(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$")
 _MD_TASK_RE = re.compile(r"^## Task (\d+):[ \t]*(.*)$")
+_MD_CODE_SPAN_RE = re.compile(r"(?<!\\)(`+)(.+?)(?<!`)\1(?!`)")
 _MD_REFERENCE_RE = re.compile(r"^ {0,3}\[[^\]]+\]:\s+\S+")
 _MD_TABLE_SEPARATOR_RE = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$")
 _MD_LINK_RE = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")
 _MD_REFERENCE_LINK_RE = re.compile(r"!?\[([^\]]*)\]\[[^\]]*\]")
 _MD_AUTOLINK_RE = re.compile(r"<((?:https?://|mailto:)[^ >]+)>")
+_MD_REFERENCE_DEF_RE = re.compile(
+    r"^ {0,3}\[([^\]]+)\]:[ \t]+(?:<([^>\r\n]+)>|(\S+))"
+)
+_MD_LINK_SCAN_RE = re.compile(
+    r"(?<![!\\])\[[^\]]*\]\(\s*(?:<(?P<inline_angle>[^>\r\n]*)>"
+    r"|(?P<inline>[^)\s\r\n]+))"
+    r"|(?<![!\\])\[(?P<label>[^\]]+)\]\[(?P<reference>[^\]]*)\]"
+    r"|(?P<autolink><(?:https?://|mailto:)[^ >]+>)"
+    r"|(?<![!\\])\[(?P<shortcut>[^\]]+)\](?![\[(])"
+)
 _MD_TOKEN_RE = re.compile(
     r"</?[A-Za-z][^>]*>|[\w]+(?:['’][\w]+)*", re.UNICODE
 )
@@ -776,7 +805,17 @@ def _normal_text(text: str) -> str:
     return " ".join(text.split()).casefold()
 
 
-def _markdown_inline_text(line: str) -> str:
+def _markdown_inline_text(line: str, *, include_code: bool = True) -> str:
+    code_spans: list[str] = []
+
+    def protect_code(match: re.Match[str]) -> str:
+        content = match.group(2)
+        if len(content) >= 2 and content[0] == " " and content[-1] == " " and content.strip():
+            content = content[1:-1]
+        code_spans.append(content)
+        return f"\x00code{len(code_spans) - 1}\x00"
+
+    line = _MD_CODE_SPAN_RE.sub(protect_code, line)
     line = _MD_AUTOLINK_RE.sub(r"\1", line)
     raw_tags: list[str] = []
 
@@ -791,10 +830,82 @@ def _markdown_inline_text(line: str) -> str:
     line = re.sub(r"\*\*|__|~~", "", line)
     line = re.sub(r"(?<!\w)[*_](?=\w)|(?<=\w)[*_](?!\w)", "", line)
     line = re.sub(r"\\([\\`*{}\[\]()#+.!_>~-])", r"\1", line)
-    return re.sub(r"\x00raw(\d+)\x00", lambda match: raw_tags[int(match.group(1))], line)
+    line = re.sub(r"\x00raw(\d+)\x00", lambda match: raw_tags[int(match.group(1))], line)
+    return re.sub(
+        r"\x00code(\d+)\x00",
+        lambda match: code_spans[int(match.group(1))] if include_code else " ",
+        line,
+    )
 
 
-def _markdown_visible_text(markdown: str, *, include_fenced_code: bool = True) -> str:
+def _markdown_link_destinations(markdown: str) -> list[str]:
+    references: dict[str, str] = {}
+    lines = markdown.splitlines()
+    fence_marker: str | None = None
+    fence_length = 0
+    for raw_line in lines:
+        line = raw_line.rstrip("\r\n")
+        if fence_marker is not None:
+            close = _MD_FENCE_CLOSE_RE.match(line)
+            if close and close.group(2)[0] == fence_marker and len(close.group(2)) >= fence_length:
+                fence_marker = None
+                fence_length = 0
+            continue
+        opened = _MD_FENCE_OPEN_RE.match(line)
+        if opened:
+            fence = opened.group(2)
+            if not (fence[0] == "`" and "`" in opened.group(3)):
+                fence_marker = fence[0]
+                fence_length = len(fence)
+                continue
+        definition = _MD_REFERENCE_DEF_RE.match(line)
+        if definition:
+            destination = definition.group(2) or definition.group(3)
+            if destination is not None:
+                references.setdefault(" ".join(definition.group(1).split()).casefold(), destination)
+
+    destinations: list[str] = []
+    fence_marker = None
+    fence_length = 0
+    for raw_line in lines:
+        line = raw_line.rstrip("\r\n")
+        if fence_marker is not None:
+            close = _MD_FENCE_CLOSE_RE.match(line)
+            if close and close.group(2)[0] == fence_marker and len(close.group(2)) >= fence_length:
+                fence_marker = None
+                fence_length = 0
+            continue
+        opened = _MD_FENCE_OPEN_RE.match(line)
+        if opened:
+            fence = opened.group(2)
+            if not (fence[0] == "`" and "`" in opened.group(3)):
+                fence_marker = fence[0]
+                fence_length = len(fence)
+                continue
+        if _MD_REFERENCE_DEF_RE.match(line):
+            continue
+        masked = re.sub(r"`+[^`\r\n]*`+", lambda match: " " * len(match.group(0)), line)
+        for match in _MD_LINK_SCAN_RE.finditer(masked):
+            if match.group("inline_angle") is not None:
+                destinations.append(match.group("inline_angle"))
+            elif match.group("inline") is not None:
+                destinations.append(match.group("inline"))
+            elif match.group("autolink") is not None:
+                destinations.append(match.group("autolink")[1:-1])
+            else:
+                label = match.group("reference") or match.group("label") or match.group("shortcut")
+                destination = references.get(" ".join(label.split()).casefold())
+                if destination is not None:
+                    destinations.append(destination)
+    return destinations
+
+
+def _markdown_visible_text(
+    markdown: str,
+    *,
+    include_fenced_code: bool = True,
+    include_inline_code: bool = True,
+) -> str:
     fragments: list[str] = []
     fence_marker: str | None = None
     fence_length = 0
@@ -824,7 +935,7 @@ def _markdown_visible_text(markdown: str, *, include_fenced_code: bool = True) -
         line = re.sub(r"^ {0,3}\[[ xX]\][ \t]+", "", line)
         line = re.sub(r"^ {0,3}#{1,6}[ \t]+", "", line)
         line = line.replace("|", " ") if "|" in line else line
-        fragments.append(_markdown_inline_text(line))
+        fragments.append(_markdown_inline_text(line, include_code=include_inline_code))
     return "\n".join(fragments)
 
 
@@ -934,8 +1045,11 @@ def _relative_resource(root: Path, html_path: Path, value: str) -> str | None:
 
 
 def _language_from_source(markdown: str) -> str | None:
-    prose = _markdown_visible_text(markdown, include_fenced_code=False)
-    prose = re.sub(r"`[^`]*`", " ", prose)
+    prose = _markdown_visible_text(
+        markdown,
+        include_fenced_code=False,
+        include_inline_code=False,
+    )
     prose = re.sub(r"</?[A-Za-z][^>]*>", " ", prose)
     if re.search(r"[\u3040-\u30ff]", prose):
         return "ja"
@@ -1011,6 +1125,7 @@ def validate_html(
     repo_root: PathInput,
     source_path: PathInput,
     companion_path: PathInput | None = None,
+    file_contents: Mapping[str, bytes] | None = None,
 ) -> PolicyResult:
     """Validate one authored HTML companion against its canonical Markdown source."""
 
@@ -1035,13 +1150,15 @@ def validate_html(
     expected_digest: str | None = None
     source_available = True
     try:
-        source_bytes = target.source_path.read_bytes()
+        source_bytes = _content_bytes(
+            target.source_path, target.source_relative, file_contents
+        )
     except (FileNotFoundError, IsADirectoryError, OSError):
         source_available = False
         violations.append(_issue("source-missing", f"Markdown source {source_relative} is unavailable.", source_relative))
         source_bytes = b""
     if source_available:
-        expected_digest = f"sha256:{sha256_file(target.source_path)}"
+        expected_digest = f"sha256:{hashlib.sha256(source_bytes).hexdigest()}"
     try:
         source_text = source_bytes.decode("utf-8")
     except UnicodeDecodeError:
@@ -1049,7 +1166,9 @@ def validate_html(
         violations.append(_issue("source-encoding", f"Markdown source {source_relative} is not UTF-8.", source_relative))
 
     try:
-        html_bytes = target.companion_path.read_bytes()
+        html_bytes = _content_bytes(
+            target.companion_path, target.companion_relative, file_contents
+        )
     except (FileNotFoundError, IsADirectoryError, OSError):
         violations.append(_issue("companion-missing", f"HTML companion {target.companion_relative} is unavailable.", source_relative))
         return _validation_result(target, violations, warnings, expected_digest)
@@ -1103,6 +1222,22 @@ def validate_html(
         for name, expected in _CSP_REQUIRED.items():
             if directives.get(name) != expected:
                 violations.append(_issue("csp", f"CSP directive {name} is not restrictive enough.", source_relative))
+        extra_directives = sorted(
+            name
+            for name, values in directives.items()
+            if name not in _CSP_REQUIRED
+            and values != _CSP_DEFENSIVE_EXTRAS.get(name)
+        )
+        if extra_directives:
+            violations.append(
+                _issue(
+                    "csp",
+                    "CSP contains unsupported directives: "
+                    + ", ".join(extra_directives)
+                    + ".",
+                    source_relative,
+                )
+            )
         forbidden_csp_values = {"*", "http:", "https:", "'unsafe-inline'", "'unsafe-eval'"}
         if any(value in forbidden_csp_values for values in directives.values() for value in values):
             violations.append(_issue("csp", "CSP contains a broad or executable source.", source_relative))
@@ -1120,6 +1255,17 @@ def validate_html(
             violations.append(_issue("stylesheet-resource", "The stylesheet must resolve to docs/sdd/assets/sdd.css inside the repository.", source_relative))
 
     for node in document.nodes:
+        if node.tag == "meta" and any(
+            (value or "").casefold() == "refresh"
+            for value in _attrs(node, "http-equiv")
+        ):
+            violations.append(
+                _issue(
+                    "meta-refresh",
+                    "Meta refresh redirects are not allowed.",
+                    source_relative,
+                )
+            )
         for name, value in node.attrs:
             if name.startswith("on"):
                 violations.append(_issue("event-attribute", f"Event attribute {name} is not allowed.", source_relative))
@@ -1148,7 +1294,10 @@ def validate_html(
                 values = value.split(",") if attr_name == "srcset" else [value]
                 for resource in values:
                     resource_value = resource.strip().split()[0]
-                    if resource_value.casefold().startswith("data:") and not resource_value.casefold().startswith("data:image/"):
+                    resource_lower = resource_value.casefold()
+                    if resource_lower.startswith("data:image/"):
+                        continue
+                    if resource_lower.startswith("data:"):
                         violations.append(_issue("network-resource", f"Non-image data resource {resource_value!r} is not allowed.", source_relative))
                     elif _relative_resource(root, target.companion_path, resource_value) is None:
                         violations.append(_issue("network-resource", f"Network-dependent resource {resource_value!r} is not allowed.", source_relative))
@@ -1312,6 +1461,36 @@ def validate_html(
                 detail = f"source fragment {expected_fragment!r} is missing or changed (found {actual_fragment!r})"
             violations.append(_issue("source-text", f"First source-text mismatch: {detail}.", source_relative))
 
+        source_links = _markdown_link_destinations(source_text)
+        html_links = [
+            _attr(node, "href") or ""
+            for node in _descendants(main)
+            if node.tag == "a"
+            and _ancestor(node, {"aside", "nav"}) is None
+            and "skip-link" not in _class_names(node)
+        ]
+        if source_links != html_links:
+            index = next(
+                (
+                    position
+                    for position, (expected, actual) in enumerate(
+                        zip(source_links, html_links)
+                    )
+                    if expected != actual
+                ),
+                min(len(source_links), len(html_links)),
+            )
+            expected = source_links[index] if index < len(source_links) else "<end>"
+            actual = html_links[index] if index < len(html_links) else "<end>"
+            violations.append(
+                _issue(
+                    "link-destination",
+                    f"Link destination {index + 1} does not preserve Markdown "
+                    f"source {expected!r} (found {actual!r}).",
+                    source_relative,
+                )
+            )
+
     return _validation_result(target, violations, warnings, expected_digest)
 
 
@@ -1404,15 +1583,24 @@ def _target_role(root: Path, raw_path: str) -> tuple[Target, str] | None:
 def check_freshness(
     repo_root: PathInput,
     changes: Iterable[GitChange],
+    bootstrap_paths: Iterable[PathInput] = (),
+    file_contents: Mapping[str, bytes] | None = None,
 ) -> PolicyResult:
     """Check changed target pairs using current source and companion bytes.
 
     ``changes`` contains only Git status information. It identifies which pairs
     need checking; ``validate_html`` supplies all freshness and document
-    evidence from the current checkout.
+    evidence from the current checkout. ``bootstrap_paths`` explicitly permits
+    HTML-only migration for the named Target Markdown documents.
     """
 
     root = _repository_root(repo_root)
+    bootstrap = _permission_paths(
+        root,
+        bootstrap_paths,
+        label="bootstrap_paths",
+        require="source",
+    )
     try:
         change_values = list(changes)
     except TypeError as exc:
@@ -1483,7 +1671,14 @@ def check_freshness(
         target = pair.target
         companion_relative = target.companion_relative
         affected_paths.extend((source_relative, companion_relative))
-        source_digest = _file_digest(target.source_path)
+        try:
+            source_digest = hashlib.sha256(
+                _content_bytes(
+                    target.source_path, target.source_relative, file_contents
+                )
+            ).hexdigest()
+        except (FileNotFoundError, IsADirectoryError, OSError):
+            source_digest = None
         if source_digest is not None:
             expected_digests[companion_relative] = f"sha256:{source_digest}"
 
@@ -1505,6 +1700,19 @@ def check_freshness(
             )
             continue
         if pair.roles != {"source", "companion"}:
+            if pair.roles == {"companion"} and source_relative in bootstrap:
+                validation = validate_html(
+                    root,
+                    target.source_path,
+                    target.companion_path,
+                    file_contents=file_contents,
+                )
+                expected_digests.update(
+                    validation["expected_digests"]  # type: ignore[arg-type]
+                )
+                violations.extend(validation["violations"])  # type: ignore[arg-type]
+                warnings.extend(validation["warnings"])  # type: ignore[arg-type]
+                continue
             if pair.roles == {"source"}:
                 code = "markdown-only"
                 message = (
@@ -1520,7 +1728,12 @@ def check_freshness(
             violations.append(_issue(code, message, source_relative))
             continue
 
-        validation = validate_html(root, target.source_path, target.companion_path)
+        validation = validate_html(
+            root,
+            target.source_path,
+            target.companion_path,
+            file_contents=file_contents,
+        )
         expected_digests.update(validation["expected_digests"])  # type: ignore[arg-type]
         violations.extend(validation["violations"])  # type: ignore[arg-type]
         warnings.extend(validation["warnings"])  # type: ignore[arg-type]
@@ -1596,6 +1809,16 @@ def bootstrap_documents(
         affected_paths,
         expected_digests,
     )
+
+
+def _cursor_hook_has_adapter(value: object) -> bool:
+    if not isinstance(value, list):
+        return False
+    for entry in value:
+        command = entry.get("command") if isinstance(entry, dict) else entry
+        if command == "adapters/cursor/html_docs_hook.py":
+            return True
+    return False
 
 
 def _registration_status(

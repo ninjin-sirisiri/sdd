@@ -94,13 +94,16 @@ def _edit_check(root: Path) -> tuple[dict[str, object], int]:
     return policy_result, 0 if policy_result["decision"] == "allow" else 1
 
 
-def _parse_check_args(args: list[str]) -> tuple[str, str | None, list[str]]:
+def _parse_check_args(
+    args: list[str],
+) -> tuple[str, str | None, list[str], list[str]]:
     if not args:
         _fail("check requires exactly one of --staged, --base REF, or explicit paths")
 
     mode: str | None = None
     reference: str | None = None
     explicit: list[str] = []
+    bootstrap: list[str] = []
     index = 0
     while index < len(args):
         argument = args[index]
@@ -127,6 +130,15 @@ def _parse_check_args(args: list[str]) -> tuple[str, str | None, list[str]]:
                 _fail("check accepts exactly one source mode")
             explicit.extend(tail)
             break
+        elif argument == "--bootstrap":
+            if mode not in {"staged", "base"}:
+                _fail("--bootstrap requires --staged or --base REF")
+            tail = args[index + 1 :]
+            if not tail or any(item.startswith("-") for item in tail):
+                _fail("--bootstrap requires at least one Target Markdown path")
+            bootstrap.extend(tail)
+            index = len(args)
+            break
         elif argument.startswith("-"):
             _fail(f"unknown check option: {argument}")
         else:
@@ -141,7 +153,7 @@ def _parse_check_args(args: list[str]) -> tuple[str, str | None, list[str]]:
         mode = "paths"
     if mode in {"staged", "base"} and index + 1 < len(args):
         _fail("check accepts exactly one source mode")
-    return mode, reference, explicit
+    return mode, reference, explicit, bootstrap
 
 
 def _parse_git_changes(output: bytes) -> list[GitChange]:
@@ -200,10 +212,41 @@ def _git_changes(root: Path, mode: str, reference: str | None, paths: list[str])
     return _parse_git_changes(completed.stdout)
 
 
+def _git_index_contents(root: Path, changes: list[GitChange]) -> dict[str, bytes]:
+    deleted = {
+        change.paths[0]
+        for change in changes
+        if change.status[:1] == "D" or change.status[:1] == "R"
+    }
+    paths = sorted({path for change in changes for path in change.paths})
+    contents: dict[str, bytes] = {}
+    for path in paths:
+        completed = subprocess.run(
+            ["git", "show", f":{path}"],
+            cwd=root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        if completed.returncode == 0:
+            contents[path] = completed.stdout
+        elif path not in deleted:
+            detail = completed.stderr.decode("utf-8", errors="replace").strip()
+            raise CLIInputError(
+                f"cannot read staged blob {path}: {detail or 'unknown error'}"
+            )
+    return contents
+
+
 def _check(root: Path, args: list[str]) -> tuple[dict[str, object], int]:
-    mode, reference, paths = _parse_check_args(args)
+    mode, reference, paths, bootstrap = _parse_check_args(args)
     changes = _git_changes(root, mode, reference, paths)
-    policy_result = check_freshness(root, changes)
+    file_contents = _git_index_contents(root, changes) if mode == "staged" else None
+    policy_result = check_freshness(
+        root,
+        changes,
+        bootstrap,
+        file_contents=file_contents,
+    )
     return policy_result, 0 if policy_result["decision"] == "allow" else 1
 
 
