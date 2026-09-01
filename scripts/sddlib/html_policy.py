@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 import hashlib
@@ -328,6 +328,16 @@ def _file_digest(path: Path) -> str | None:
         return sha256_file(path)
     except (FileNotFoundError, IsADirectoryError, OSError):
         return None
+
+
+def _content_bytes(
+    path: Path,
+    relative: str,
+    file_contents: Mapping[str, bytes] | None,
+) -> bytes:
+    if file_contents is not None and relative in file_contents:
+        return file_contents[relative]
+    return path.read_bytes()
 
 
 def check_edit(
@@ -1092,6 +1102,7 @@ def validate_html(
     repo_root: PathInput,
     source_path: PathInput,
     companion_path: PathInput | None = None,
+    file_contents: Mapping[str, bytes] | None = None,
 ) -> PolicyResult:
     """Validate one authored HTML companion against its canonical Markdown source."""
 
@@ -1116,13 +1127,15 @@ def validate_html(
     expected_digest: str | None = None
     source_available = True
     try:
-        source_bytes = target.source_path.read_bytes()
+        source_bytes = _content_bytes(
+            target.source_path, target.source_relative, file_contents
+        )
     except (FileNotFoundError, IsADirectoryError, OSError):
         source_available = False
         violations.append(_issue("source-missing", f"Markdown source {source_relative} is unavailable.", source_relative))
         source_bytes = b""
     if source_available:
-        expected_digest = f"sha256:{sha256_file(target.source_path)}"
+        expected_digest = f"sha256:{hashlib.sha256(source_bytes).hexdigest()}"
     try:
         source_text = source_bytes.decode("utf-8")
     except UnicodeDecodeError:
@@ -1130,7 +1143,9 @@ def validate_html(
         violations.append(_issue("source-encoding", f"Markdown source {source_relative} is not UTF-8.", source_relative))
 
     try:
-        html_bytes = target.companion_path.read_bytes()
+        html_bytes = _content_bytes(
+            target.companion_path, target.companion_relative, file_contents
+        )
     except (FileNotFoundError, IsADirectoryError, OSError):
         violations.append(_issue("companion-missing", f"HTML companion {target.companion_relative} is unavailable.", source_relative))
         return _validation_result(target, violations, warnings, expected_digest)
@@ -1540,6 +1555,7 @@ def _target_role(root: Path, raw_path: str) -> tuple[Target, str] | None:
 def check_freshness(
     repo_root: PathInput,
     changes: Iterable[GitChange],
+    file_contents: Mapping[str, bytes] | None = None,
 ) -> PolicyResult:
     """Check changed target pairs using current source and companion bytes.
 
@@ -1619,7 +1635,14 @@ def check_freshness(
         target = pair.target
         companion_relative = target.companion_relative
         affected_paths.extend((source_relative, companion_relative))
-        source_digest = _file_digest(target.source_path)
+        try:
+            source_digest = hashlib.sha256(
+                _content_bytes(
+                    target.source_path, target.source_relative, file_contents
+                )
+            ).hexdigest()
+        except (FileNotFoundError, IsADirectoryError, OSError):
+            source_digest = None
         if source_digest is not None:
             expected_digests[companion_relative] = f"sha256:{source_digest}"
 
@@ -1656,7 +1679,12 @@ def check_freshness(
             violations.append(_issue(code, message, source_relative))
             continue
 
-        validation = validate_html(root, target.source_path, target.companion_path)
+        validation = validate_html(
+            root,
+            target.source_path,
+            target.companion_path,
+            file_contents=file_contents,
+        )
         expected_digests.update(validation["expected_digests"])  # type: ignore[arg-type]
         violations.extend(validation["violations"])  # type: ignore[arg-type]
         warnings.extend(validation["warnings"])  # type: ignore[arg-type]
@@ -1734,6 +1762,16 @@ def bootstrap_documents(
     )
 
 
+def _cursor_hook_has_adapter(value: object) -> bool:
+    if not isinstance(value, list):
+        return False
+    for entry in value:
+        command = entry.get("command") if isinstance(entry, dict) else entry
+        if command == "adapters/cursor/html_docs_hook.py":
+            return True
+    return False
+
+
 def _registration_status(
     root: Path,
     host: str,
@@ -1771,12 +1809,14 @@ def _registration_status(
             hooks = parsed.get("hooks") if isinstance(parsed, dict) else None
             required = {"preToolUse", "afterFileEdit", "stop"}
             valid_hooks = isinstance(hooks, dict) and required <= set(hooks)
-            commands = serialized.count("adapters/cursor/html_docs_hook.py")
+            valid_commands = isinstance(hooks, dict) and all(
+                _cursor_hook_has_adapter(hooks.get(name)) for name in required
+            )
             valid = (
                 valid_hooks
                 and isinstance(parsed, dict)
                 and parsed.get("failClosed") is True
-                and commands >= 3
+                and valid_commands
                 and (root / "adapters/cursor/html_docs_hook.py").is_file()
                 and os.access(root / "adapters/cursor/html_docs_hook.py", os.X_OK)
             )
