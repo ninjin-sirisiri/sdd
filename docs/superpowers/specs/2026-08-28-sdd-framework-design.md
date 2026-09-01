@@ -249,6 +249,7 @@ detached HEAD では 1 を出さない（2 / 3 / 4）。
 4 は `stack-prs` にレジャー、確認済み base、plan パスを渡す。レジャーに Task 完了行が無い、またはコミット範囲が欠けているなら PR を作らず非ゼロで止まる。履歴は書き換えない。force-push しない。既存コミットにブランチを指すだけにする。
 
 ブランチ名は `sdd-stack/task-N`。Task 1 の PR の base は確認済み base branch。Task N の PR の base は `sdd-stack/task-(N-1)`。途中失敗時は、作れた PR の URL と未作成 Task を報告する。
+公開後の GitHub レビュー修正は `docs/sdd/specs/2026-09-01-stacked-pr-review-fix-design.md` が正。既存の stack branch に attach し、restack しない。
 
 `gh` が必要なのは 2 と 4。1 と 3 は git のみ。
 

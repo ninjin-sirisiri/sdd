@@ -1,6 +1,6 @@
 ---
 name: sdd
-description: Route spec-driven work to sdd-design, sdd-plan, sdd-execute, sdd-goal, or sdd-finish, and supporting Superpowers skills (TDD, debugging, verification). Use when the user wants SDD, a spec, a plan, implementation, a completion-condition loop, a branch finish, TDD, systematic debugging, or a design grill.
+description: Route spec-driven work to sdd-design, sdd-plan, sdd-execute, sdd-goal, sdd-finish, or sdd-review-fix, and supporting Superpowers skills (TDD, debugging, verification). Use when the user wants SDD, a spec, a plan, implementation, a completion-condition loop, a branch finish, TDD, systematic debugging, or a design grill.
 ---
 
 # SDD
@@ -18,11 +18,13 @@ Format templates live at `<pack-root>/docs/formats/`. Scripts live at `<pack-roo
 | Plan exists, implement it | sdd-execute |
 | Keep working until a condition holds (/goal) | sdd-goal |
 | Implementation green, integrate | sdd-finish |
+| GitHub review on a stacked PR (`sdd-stack/task-N`) | sdd-review-fix |
 | User asks to "just implement" something architectural | sdd-design first |
 | Bounded feature, bugfix, or refactor (no architectural spec) | test-driven-development |
 | Bug, test failure, or unexpected behavior | systematic-debugging |
 | About to claim the branch is complete (sdd-finish) | verification-before-completion |
-| Isolated workspace / git worktree (after the human said yes) | using-git-worktrees |
+| Isolated workspace / git worktree (after the human said yes) | using-git-worktrees isolate |
+| Checkout of an existing stack branch for a stacked-PR review | using-git-worktrees attach (from sdd-review-fix) |
 | Review the human asked for | requesting-code-review |
 | Acting on review feedback | receiving-code-review |
 | 2+ independent investigations (not plan tasks) | dispatching-parallel-agents |

@@ -44,7 +44,7 @@ Wait for the human. Do not add extra options. Creating a worktree is optional.
 - **Yes:** use using-git-worktrees. They already consented — do not ask again inside that skill. After it reports ready, continue this skill from that worktree. Append `Worktree: created <full-path>` to `.sdd/progress.md` in the checkout you will implement in (create the file if needed). If creation fails and that skill falls back in place, append `Worktree: in-place` instead.
 - **No:** append `Worktree: in-place` and continue in this checkout.
 
-Do not use using-git-worktrees for Task implementer subagents. `[WORKDIR]` is this chosen checkout.
+Do not use using-git-worktrees for Task implementer subagents. Do not attach review worktrees. Isolate only, and only after the human said yes. `[WORKDIR]` is this chosen checkout.
 
 If the checkout you will implement in is still dirty after the `.gitignore` commit, stop and ask the human to commit or stash. A new worktree from HEAD is clean even when the original checkout is dirty; do not block on dirt in the checkout you left behind.
 

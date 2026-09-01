@@ -43,6 +43,8 @@ python3 <pack-root>/scripts/stack-prs --base <base-branch> --ledger .sdd/progres
 
 If the command exits non-zero, report any PR URLs it printed and which tasks remain. Do not force-push. Do not rebase or amend. Needs `gh`. Two or more PRs are also linked as a GitHub stack (`POST /repos/{owner}/{repo}/stacks`). If that step fails, report the PR URLs and that the stack was not created.
 
+After option 4 succeeds, later GitHub review fixes use sdd-review-fix. Land stacked PRs from the bottom on GitHub. Do not merge, restack, or create review worktrees from finish.
+
 Option 4 is unavailable without a ledger. Do not invent task boundaries from `git log` guesswork.
 
 worktree cleanup is out of scope unless this checkout is a git worktree you created in this session (including after the sdd-execute workspace prompt). Creating a worktree is optional.
