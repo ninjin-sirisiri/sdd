@@ -505,6 +505,16 @@ _MD_TABLE_SEPARATOR_RE = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*
 _MD_LINK_RE = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")
 _MD_REFERENCE_LINK_RE = re.compile(r"!?\[([^\]]*)\]\[[^\]]*\]")
 _MD_AUTOLINK_RE = re.compile(r"<((?:https?://|mailto:)[^ >]+)>")
+_MD_REFERENCE_DEF_RE = re.compile(
+    r"^ {0,3}\[([^\]]+)\]:[ \t]+(?:<([^>\r\n]+)>|(\S+))"
+)
+_MD_LINK_SCAN_RE = re.compile(
+    r"(?<![!\\])\[[^\]]*\]\(\s*(?:<(?P<inline_angle>[^>\r\n]*)>"
+    r"|(?P<inline>[^)\s\r\n]+))"
+    r"|(?<![!\\])\[(?P<label>[^\]]+)\]\[(?P<reference>[^\]]*)\]"
+    r"|(?P<autolink><(?:https?://|mailto:)[^ >]+>)"
+    r"|(?<![!\\])\[(?P<shortcut>[^\]]+)\](?![\[(])"
+)
 _MD_TOKEN_RE = re.compile(
     r"</?[A-Za-z][^>]*>|[\w]+(?:['’][\w]+)*", re.UNICODE
 )
@@ -774,6 +784,16 @@ def _normal_text(text: str) -> str:
 
 
 def _markdown_inline_text(line: str) -> str:
+    code_spans: list[str] = []
+
+    def protect_code_span(match: re.Match[str]) -> str:
+        content = match.group(2)
+        if len(content) >= 2 and content.startswith(" ") and content.endswith(" ") and content.strip():
+            content = content[1:-1]
+        code_spans.append(content)
+        return f"\x00code{len(code_spans) - 1}\x00"
+
+    line = re.sub(r"(`+)([^`\r\n]*?)\1", protect_code_span, line)
     line = _MD_AUTOLINK_RE.sub(r"\1", line)
     raw_tags: list[str] = []
 
@@ -788,7 +808,70 @@ def _markdown_inline_text(line: str) -> str:
     line = re.sub(r"\*\*|__|~~", "", line)
     line = re.sub(r"(?<!\w)[*_](?=\w)|(?<=\w)[*_](?!\w)", "", line)
     line = re.sub(r"\\([\\`*{}\[\]()#+.!_>~-])", r"\1", line)
+    line = re.sub(r"\x00code(\d+)\x00", lambda match: code_spans[int(match.group(1))], line)
     return re.sub(r"\x00raw(\d+)\x00", lambda match: raw_tags[int(match.group(1))], line)
+
+
+def _markdown_link_destinations(markdown: str) -> list[str]:
+    references: dict[str, str] = {}
+    lines = markdown.splitlines()
+    fence_marker: str | None = None
+    fence_length = 0
+    for raw_line in lines:
+        line = raw_line.rstrip("\r\n")
+        if fence_marker is not None:
+            close = _MD_FENCE_CLOSE_RE.match(line)
+            if close and close.group(2)[0] == fence_marker and len(close.group(2)) >= fence_length:
+                fence_marker = None
+                fence_length = 0
+            continue
+        opened = _MD_FENCE_OPEN_RE.match(line)
+        if opened:
+            fence = opened.group(2)
+            if not (fence[0] == "`" and "`" in opened.group(3)):
+                fence_marker = fence[0]
+                fence_length = len(fence)
+                continue
+        definition = _MD_REFERENCE_DEF_RE.match(line)
+        if definition:
+            destination = definition.group(2) or definition.group(3)
+            if destination is not None:
+                references.setdefault(" ".join(definition.group(1).split()).casefold(), destination)
+
+    destinations: list[str] = []
+    fence_marker = None
+    fence_length = 0
+    for raw_line in lines:
+        line = raw_line.rstrip("\r\n")
+        if fence_marker is not None:
+            close = _MD_FENCE_CLOSE_RE.match(line)
+            if close and close.group(2)[0] == fence_marker and len(close.group(2)) >= fence_length:
+                fence_marker = None
+                fence_length = 0
+            continue
+        opened = _MD_FENCE_OPEN_RE.match(line)
+        if opened:
+            fence = opened.group(2)
+            if not (fence[0] == "`" and "`" in opened.group(3)):
+                fence_marker = fence[0]
+                fence_length = len(fence)
+                continue
+        if _MD_REFERENCE_DEF_RE.match(line):
+            continue
+        masked = re.sub(r"`+[^`\r\n]*`+", lambda match: " " * len(match.group(0)), line)
+        for match in _MD_LINK_SCAN_RE.finditer(masked):
+            if match.group("inline_angle") is not None:
+                destinations.append(match.group("inline_angle"))
+            elif match.group("inline") is not None:
+                destinations.append(match.group("inline"))
+            elif match.group("autolink") is not None:
+                destinations.append(match.group("autolink")[1:-1])
+            else:
+                label = match.group("reference") or match.group("label") or match.group("shortcut")
+                destination = references.get(" ".join(label.split()).casefold())
+                if destination is not None:
+                    destinations.append(destination)
+    return destinations
 
 
 def _markdown_visible_text(markdown: str, *, include_fenced_code: bool = True) -> str:
@@ -931,8 +1014,8 @@ def _relative_resource(root: Path, html_path: Path, value: str) -> str | None:
 
 
 def _language_from_source(markdown: str) -> str | None:
+    markdown = re.sub(r"`+[^`\r\n]*`+", " ", markdown)
     prose = _markdown_visible_text(markdown, include_fenced_code=False)
-    prose = re.sub(r"`[^`]*`", " ", prose)
     prose = re.sub(r"</?[A-Za-z][^>]*>", " ", prose)
     if re.search(r"[\u3040-\u30ff]", prose):
         return "ja"
@@ -1100,6 +1183,17 @@ def validate_html(
         for name, expected in _CSP_REQUIRED.items():
             if directives.get(name) != expected:
                 violations.append(_issue("csp", f"CSP directive {name} is not restrictive enough.", source_relative))
+        extra_directives = sorted(set(directives) - set(_CSP_REQUIRED))
+        if extra_directives:
+            violations.append(
+                _issue(
+                    "csp",
+                    "CSP contains unsupported directives: "
+                    + ", ".join(extra_directives)
+                    + ".",
+                    source_relative,
+                )
+            )
         forbidden_csp_values = {"*", "http:", "https:", "'unsafe-inline'", "'unsafe-eval'"}
         if any(value in forbidden_csp_values for values in directives.values() for value in values):
             violations.append(_issue("csp", "CSP contains a broad or executable source.", source_relative))
@@ -1117,6 +1211,17 @@ def validate_html(
             violations.append(_issue("stylesheet-resource", "The stylesheet must resolve to docs/sdd/assets/sdd.css inside the repository.", source_relative))
 
     for node in document.nodes:
+        if node.tag == "meta" and any(
+            (value or "").casefold() == "refresh"
+            for value in _attrs(node, "http-equiv")
+        ):
+            violations.append(
+                _issue(
+                    "meta-refresh",
+                    "Meta refresh redirects are not allowed.",
+                    source_relative,
+                )
+            )
         for name, value in node.attrs:
             if name.startswith("on"):
                 violations.append(_issue("event-attribute", f"Event attribute {name} is not allowed.", source_relative))
@@ -1145,7 +1250,10 @@ def validate_html(
                 values = value.split(",") if attr_name == "srcset" else [value]
                 for resource in values:
                     resource_value = resource.strip().split()[0]
-                    if resource_value.casefold().startswith("data:") and not resource_value.casefold().startswith("data:image/"):
+                    resource_lower = resource_value.casefold()
+                    if resource_lower.startswith("data:image/"):
+                        continue
+                    if resource_lower.startswith("data:"):
                         violations.append(_issue("network-resource", f"Non-image data resource {resource_value!r} is not allowed.", source_relative))
                     elif _relative_resource(root, target.companion_path, resource_value) is None:
                         violations.append(_issue("network-resource", f"Network-dependent resource {resource_value!r} is not allowed.", source_relative))
@@ -1308,6 +1416,36 @@ def validate_html(
             else:
                 detail = f"source fragment {expected_fragment!r} is missing or changed (found {actual_fragment!r})"
             violations.append(_issue("source-text", f"First source-text mismatch: {detail}.", source_relative))
+
+        source_links = _markdown_link_destinations(source_text)
+        html_links = [
+            _attr(node, "href") or ""
+            for node in _descendants(main)
+            if node.tag == "a"
+            and _ancestor(node, {"aside", "nav"}) is None
+            and "skip-link" not in _class_names(node)
+        ]
+        if source_links != html_links:
+            index = next(
+                (
+                    position
+                    for position, (expected, actual) in enumerate(
+                        zip(source_links, html_links)
+                    )
+                    if expected != actual
+                ),
+                min(len(source_links), len(html_links)),
+            )
+            expected = source_links[index] if index < len(source_links) else "<end>"
+            actual = html_links[index] if index < len(html_links) else "<end>"
+            violations.append(
+                _issue(
+                    "link-destination",
+                    f"Link destination {index + 1} does not preserve Markdown "
+                    f"source {expected!r} (found {actual!r}).",
+                    source_relative,
+                )
+            )
 
     return _validation_result(target, violations, warnings, expected_digest)
 
