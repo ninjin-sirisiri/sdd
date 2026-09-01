@@ -11,6 +11,7 @@ from sddlib.html_policy import (
     PathOutsideRepository,
     PolicyInputError,
     _markdown_visible_text,
+    _language_from_source,
     check_edit,
     parse_html,
     parse_digest_metadata,
@@ -66,6 +67,27 @@ def test_resolver_accepts_absolute_paths_and_rejects_escape(tmp_path: Path) -> N
 
     with pytest.raises(PathOutsideRepository):
         resolve_target(tmp_path, tmp_path.parent / "CONTEXT.md")
+
+
+def test_target_symlink_keeps_lexical_name_for_policy_checks(tmp_path: Path) -> None:
+    destination = tmp_path / "source-destination.md"
+    destination.write_bytes(b"# Context\n")
+    source = tmp_path / "CONTEXT.md"
+    source.symlink_to(destination)
+
+    target = resolve_target(tmp_path, source)
+    assert target is not None
+    assert target.source_relative == "CONTEXT.md"
+    assert target.source_path == source
+
+    result = check_edit(tmp_path, [source])
+    assert result["decision"] == "allow"
+    assert result["paths"] == ["CONTEXT.md", "CONTEXT.html"]
+
+    source.unlink()
+    source.symlink_to(tmp_path.parent / "outside.md")
+    with pytest.raises(PathOutsideRepository):
+        resolve_target(tmp_path, source)
 
 
 def test_sha256_preserves_crlf_trailing_whitespace_and_final_newline(tmp_path: Path) -> None:
@@ -406,6 +428,90 @@ def test_unsafe_tags_attributes_and_resources_are_rejected(
     companion.write_text(html, encoding="utf-8")
     result = validate_html(tmp_path, source, companion)
     assert code in _violation_codes(result)
+
+
+def test_link_destinations_must_match_markdown_source(tmp_path: Path) -> None:
+    source, companion = _copy_fixture(
+        tmp_path, "spec", "2026-01-01-example-design"
+    )
+    html = companion.read_text(encoding="utf-8").replace(
+        'href="../plans/2026-01-01-example.md"',
+        'href="https://evil.example/phish"',
+    )
+    companion.write_text(html, encoding="utf-8")
+
+    result = validate_html(tmp_path, source, companion)
+    assert "link-destination" in _violation_codes(result)
+
+
+def test_meta_refresh_redirects_are_rejected(tmp_path: Path) -> None:
+    source, companion = _copy_fixture(
+        tmp_path, "spec", "2026-01-01-example-design"
+    )
+    html = companion.read_text(encoding="utf-8").replace(
+        "</head>",
+        '<meta http-equiv="refresh" content="0;url=https://evil.example/">\n</head>',
+    )
+    companion.write_text(html, encoding="utf-8")
+
+    result = validate_html(tmp_path, source, companion)
+    assert "meta-refresh" in _violation_codes(result)
+
+
+def test_csp_additional_source_directives_are_rejected(tmp_path: Path) -> None:
+    source, companion = _copy_fixture(
+        tmp_path, "spec", "2026-01-01-example-design"
+    )
+    html = companion.read_text(encoding="utf-8").replace(
+        "frame-ancestors &#x27;none&#x27;",
+        "frame-ancestors &#x27;none&#x27;; connect-src https://evil.example",
+    )
+    companion.write_text(html, encoding="utf-8")
+
+    result = validate_html(tmp_path, source, companion)
+    assert "csp" in _violation_codes(result)
+
+
+def test_data_image_media_resources_are_allowed(tmp_path: Path) -> None:
+    source, companion = _copy_fixture(
+        tmp_path, "spec", "2026-01-01-example-design"
+    )
+    html = companion.read_text(encoding="utf-8").replace(
+        "</main>",
+        '<img src="data:image/png;base64,AAAA" alt="diagram"></main>',
+    )
+    companion.write_text(html, encoding="utf-8")
+
+    result = validate_html(tmp_path, source, companion)
+    assert result["decision"] == "allow", result
+    assert "network-resource" not in _violation_codes(result)
+
+
+def test_inline_code_in_heading_preserves_visible_heading_text(tmp_path: Path) -> None:
+    source, companion = _copy_fixture(
+        tmp_path, "spec", "2026-01-01-example-design"
+    )
+    original = source.read_bytes()
+    updated = original.replace(b"# Example design", b"# Example `design`")
+    source.write_bytes(updated)
+    html = companion.read_text(encoding="utf-8").replace(
+        _digest(original),
+        _digest(updated),
+    ).replace(
+        '<h1 id="example-design">Example design</h1>',
+        '<h1 id="example-design">Example <code>design</code></h1>',
+    )
+    companion.write_text(html, encoding="utf-8")
+
+    result = validate_html(tmp_path, source, companion)
+    assert result["decision"] == "allow", result
+    assert "heading-structure" not in _violation_codes(result)
+
+
+def test_inline_code_does_not_determine_source_language() -> None:
+    markdown = "This is a document.\n\n`la le les des pour avec`\n"
+
+    assert _language_from_source(markdown) == "en"
 
 
 def test_tables_need_caption_and_scoped_header_cells(tmp_path: Path) -> None:

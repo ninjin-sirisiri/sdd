@@ -211,10 +211,41 @@ def _git_changes(root: Path, mode: str, reference: str | None, paths: list[str])
     return _parse_git_changes(completed.stdout)
 
 
+def _git_index_contents(root: Path, changes: list[GitChange]) -> dict[str, bytes]:
+    deleted = {
+        change.paths[0]
+        for change in changes
+        if change.status[:1] == "D" or change.status[:1] == "R"
+    }
+    paths = sorted({path for change in changes for path in change.paths})
+    contents: dict[str, bytes] = {}
+    for path in paths:
+        completed = subprocess.run(
+            ["git", "show", f":{path}"],
+            cwd=root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        if completed.returncode == 0:
+            contents[path] = completed.stdout
+        elif path not in deleted:
+            detail = completed.stderr.decode("utf-8", errors="replace").strip()
+            raise CLIInputError(
+                f"cannot read staged blob {path}: {detail or 'unknown error'}"
+            )
+    return contents
+
+
 def _check(root: Path, args: list[str]) -> tuple[dict[str, object], int]:
     mode, reference, paths, bootstrap = _parse_check_args(args)
     changes = _git_changes(root, mode, reference, paths)
-    policy_result = check_freshness(root, changes, bootstrap)
+    file_contents = _git_index_contents(root, changes) if mode == "staged" else None
+    policy_result = check_freshness(
+        root,
+        changes,
+        bootstrap,
+        file_contents=file_contents,
+    )
     return policy_result, 0 if policy_result["decision"] == "allow" else 1
 
 

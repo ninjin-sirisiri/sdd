@@ -200,6 +200,35 @@ def test_check_staged_rejects_html_only_change_even_when_valid(tmp_path: Path) -
     assert source.exists()
 
 
+def test_check_staged_validates_index_html_not_worktree_html(tmp_path: Path) -> None:
+    init_repo(tmp_path)
+    source, companion = copy_fixture(tmp_path, "glossary", "CONTEXT")
+    commit_all(tmp_path, "base")
+    old = source.read_bytes()
+    new = old.replace(b"Ordering", b"Vocabulary", 1)
+    source.write_bytes(new)
+    valid_html = (
+        companion.read_text(encoding="utf-8")
+        .replace("Ordering", "Vocabulary")
+        .replace('id="ordering"', 'id="vocabulary"')
+        .replace(digest(old), digest(new))
+    )
+    invalid_html = valid_html.replace(
+        'name="sdd-source-digest"', 'name="wrong-digest"'
+    )
+    companion.write_text(invalid_html, encoding="utf-8")
+    git(tmp_path, "add", "CONTEXT.md", "CONTEXT.html")
+    companion.write_text(valid_html, encoding="utf-8")
+
+    process = run_cli(tmp_path, "check", "--staged")
+
+    assert process.returncode == 1
+    assert any(
+        item["code"] == "digest-metadata"  # type: ignore[index]
+        for item in result(process)["violations"]  # type: ignore[index]
+    )
+
+
 def test_check_staged_allows_css_only_and_unrelated_changes(tmp_path: Path) -> None:
     init_repo(tmp_path)
     copy_fixture(tmp_path, "glossary", "CONTEXT")
@@ -458,3 +487,36 @@ def test_doctor_accepts_compatible_explicit_registration_files(tmp_path: Path) -
     checked = result(process)
     assert checked["decision"] == "allow"
     assert {item["status"] for item in checked["registrations"]} == {"enabled"}  # type: ignore[index]
+def test_doctor_rejects_cursor_commands_outside_required_hooks(tmp_path: Path) -> None:
+    cursor_adapter = tmp_path / "adapters/cursor/html_docs_hook.py"
+    cursor_adapter.parent.mkdir(parents=True)
+    cursor_adapter.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    cursor_adapter.chmod(0o755)
+    cursor = tmp_path / ".cursor/hooks.json"
+    cursor.parent.mkdir()
+    cursor.write_text(
+        json.dumps(
+            {
+                "failClosed": True,
+                "hooks": {
+                    "preToolUse": [],
+                    "afterFileEdit": [],
+                    "stop": [],
+                },
+                "notes": "adapters/cursor/html_docs_hook.py "
+                "adapters/cursor/html_docs_hook.py "
+                "adapters/cursor/html_docs_hook.py",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    process = run_cli(tmp_path, "doctor")
+
+    checked = result(process)
+    cursor_status = next(
+        item["status"]
+        for item in checked["registrations"]  # type: ignore[index]
+        if item["host"] == "cursor"  # type: ignore[index]
+    )
+    assert cursor_status == "incompatible"
