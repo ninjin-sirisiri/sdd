@@ -1,26 +1,43 @@
 <!DOCTYPE html>
-<html lang="und">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src &#x27;none&#x27;; img-src &#x27;self&#x27; data:; style-src &#x27;self&#x27;; base-uri &#x27;none&#x27;; form-action &#x27;none&#x27;; frame-ancestors &#x27;none&#x27;">
+<meta name="sdd-source-digest" content="sha256:0cdebd2cf05cbb4db9960eae9ea56d1df674b3bcd362062e263f4aee097d4d10">
 <title>Stacked PR review-fix Implementation Plan</title>
 <link rel="stylesheet" href="../assets/sdd.css">
 </head>
-<body>
-<header>
-<p>Plan</p>
+<body data-document-kind="plan">
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="document-header" data-document-kind="plan">
+<p class="document-kind">Plan</p>
+</header>
+<div class="document-layout">
+<aside class="document-outline" aria-labelledby="outline-label">
+<details open>
+<summary id="outline-label">On this page</summary>
 <nav aria-label="On this page">
-<ul>
+<ol>
 <li><a href="#global-constraints">Global Constraints</a></li>
 <li><a href="#file-structure">File structure</a></li>
 <li><a href="#task-1-attach-path-on-using-git-worktrees">Task 1: Attach path on using-git-worktrees</a></li>
 <li><a href="#task-2-sdd-review-fix-skill">Task 2: sdd-review-fix skill</a></li>
-<li><a href="#task-3-route-finish-pointer-and-readme">Task 3: Route, finish pointer, and README</a></li>
-</ul>
+<li><a href="#task-3-route-finish-pointer-and-readme">Task 3: Route, finish pointer, and README</a>
+<ol>
+<li><a href="#skillssddskillmd">`skills/sdd/SKILL.md`</a></li>
+<li><a href="#skillssdd-finishskillmd">`skills/sdd-finish/SKILL.md`</a></li>
+<li><a href="#skillsreceiving-code-reviewskillmd">`skills/receiving-code-review/SKILL.md`</a></li>
+<li><a href="#skillssdd-executeskillmd">`skills/sdd-execute/SKILL.md`</a></li>
+<li><a href="#readmemd">`README.md`</a></li>
+<li><a href="#docssuperpowersspecs2026-08-28-sdd-framework-designmd">`docs/superpowers/specs/2026-08-28-sdd-framework-design.md`</a></li>
+</ol>
+</li>
+</ol>
 </nav>
-</header>
-<main>
+</details>
+</aside>
+<main id="content" tabindex="-1">
 <h1 id="stacked-pr-review-fix-implementation-plan">Stacked PR review-fix Implementation Plan</h1>
 <p><strong>Goal:</strong> After stacked PRs exist, a GitHub review updates the existing <code>sdd-stack/task-N</code> head in place via an attached review worktree, with no extra branch and no restack.</p>
 <p><strong>Architecture:</strong> <code>sdd-review-fix</code> owns the loop (evaluate, confirm the open PR, implement, test, push). <code>using-git-worktrees</code> gains an attach mode that checks out an existing stack branch with no <code>-b</code>. Isolate (<code>-b</code>, optional before execute) stays a separate entry. Finish and receiving-code-review only point here; they do not merge or create branches.</p>
@@ -54,10 +71,11 @@
 <section>
 <h2 id="file-structure">File structure</h2>
 <table>
+<caption>Implementation components and responsibilities</caption>
 <thead>
 <tr>
-  <th>Path</th>
-  <th>Responsibility</th>
+  <th scope="col">Path</th>
+  <th scope="col">Responsibility</th>
 </tr>
 </thead>
 <tbody>
@@ -97,7 +115,8 @@
 </table>
 <p>Do not add scripts, pytest files, or plugin manifest skill lists.</p>
 </section>
-<section>
+<article class="plan-task" data-task-number="1">
+<div class="task-rail" aria-hidden="true"><span class="task-number">01</span></div>
 <h2 id="task-1-attach-path-on-using-git-worktrees">Task 1: Attach path on using-git-worktrees</h2>
 <p>Replace <code>skills/using-git-worktrees/SKILL.md</code> with the file below. Isolate behavior stays: ask is still owned by execute/bounded TDD; <code>-b</code> still creates the isolation branch; sandbox denial may still work in place <strong>for isolate only</strong>. Attach never uses <code>-b</code>, never asks the execute prompt, never uses a native tool that would create a branch, and never falls back in place when the current checkout is not the target branch.</p>
 <p>Write <code>skills/using-git-worktrees/SKILL.md</code> as exactly:</p>
@@ -349,8 +368,9 @@ python3 -m pytest -q
 <pre><code class="language-bash">git add skills/using-git-worktrees/SKILL.md
 git commit -m &quot;Add worktree attach so stacked PR reviews checkout existing branches.&quot;
 </code></pre>
-</section>
-<section>
+</article>
+<article class="plan-task" data-task-number="2">
+<div class="task-rail" aria-hidden="true"><span class="task-number">02</span></div>
 <h2 id="task-2-sdd-review-fix-skill">Task 2: sdd-review-fix skill</h2>
 <p>Create <code>skills/sdd-review-fix/SKILL.md</code> as exactly:</p>
 <pre><code class="language-markdown">---
@@ -437,11 +457,12 @@ python3 -m pytest -q
 <pre><code class="language-bash">git add skills/sdd-review-fix/SKILL.md
 git commit -m &quot;Add sdd-review-fix so stacked PR reviews update stack heads in place.&quot;
 </code></pre>
-</section>
-<section>
+</article>
+<article class="plan-task" data-task-number="3">
+<div class="task-rail" aria-hidden="true"><span class="task-number">03</span></div>
 <h2 id="task-3-route-finish-pointer-and-readme">Task 3: Route, finish pointer, and README</h2>
 <p>Keep each edit surgical. Do not rewrite whole files.</p>
-<h3 id="skillssddskillmd"><code>skills/sdd/SKILL.md</code></h3>
+<h3 id="skillssddskillmd"><code>`skills/sdd/SKILL.md`</code></h3>
 <p>In the frontmatter <code>description</code>, change <code>sdd-design, sdd-plan, sdd-execute, sdd-goal, or sdd-finish</code> to <code>sdd-design, sdd-plan, sdd-execute, sdd-goal, sdd-finish, or sdd-review-fix</code>.</p>
 <p>In the Route table, after the <code>sdd-finish</code> row, add:</p>
 <pre><code class="language-markdown">| GitHub review on a stacked PR (`sdd-stack/task-N`) | sdd-review-fix |
@@ -450,19 +471,19 @@ git commit -m &quot;Add sdd-review-fix so stacked PR reviews update stack heads 
 <pre><code class="language-markdown">| Isolated workspace / git worktree (after the human said yes) | using-git-worktrees isolate |
 | Checkout of an existing stack branch for a stacked-PR review | using-git-worktrees attach (from sdd-review-fix) |
 </code></pre>
-<h3 id="skillssdd-finishskillmd"><code>skills/sdd-finish/SKILL.md</code></h3>
+<h3 id="skillssdd-finishskillmd"><code>`skills/sdd-finish/SKILL.md`</code></h3>
 <p>Immediately after the paragraph that starts <code>If the command exits non-zero, report any PR URLs</code> (option 4), add:</p>
 <pre><code class="language-markdown">After option 4 succeeds, later GitHub review fixes use sdd-review-fix. Land stacked PRs from the bottom on GitHub. Do not merge, restack, or create review worktrees from finish.
 </code></pre>
-<h3 id="skillsreceiving-code-reviewskillmd"><code>skills/receiving-code-review/SKILL.md</code></h3>
+<h3 id="skillsreceiving-code-reviewskillmd"><code>`skills/receiving-code-review/SKILL.md`</code></h3>
 <p>Immediately after the <code>**Core principle:**</code> line, add:</p>
 <pre><code class="language-markdown">If the pull request head is a stack branch (`sdd-stack/task-N`), git operations (worktree, commit, push) are sdd-review-fix. This skill does not create branches.
 </code></pre>
-<h3 id="skillssdd-executeskillmd"><code>skills/sdd-execute/SKILL.md</code></h3>
+<h3 id="skillssdd-executeskillmd"><code>`skills/sdd-execute/SKILL.md`</code></h3>
 <p>Replace the line <code>Do not use using-git-worktrees for Task implementer subagents. </code>[WORKDIR]<code> is this chosen checkout.</code> with:</p>
 <pre><code class="language-markdown">Do not use using-git-worktrees for Task implementer subagents. Do not attach review worktrees. Isolate only, and only after the human said yes. `[WORKDIR]` is this chosen checkout.
 </code></pre>
-<h3 id="readmemd"><code>README.md</code></h3>
+<h3 id="readmemd"><code>`README.md`</code></h3>
 <p>In Claude Code invoke list, add <code>/sdd:sdd-review-fix</code>. In Cursor invoke sentence, add <code>/sdd-review-fix</code>.</p>
 <p>After the pipeline paragraph about <code>sdd-finish</code>, add:</p>
 <pre><code class="language-markdown">After stacked PRs exist, GitHub review fixes use `sdd-review-fix` (existing `sdd-stack/task-N` only). Land from the bottom on GitHub.
@@ -478,7 +499,7 @@ git commit -m &quot;Add sdd-review-fix so stacked PR reviews update stack heads 
 <p>In Manual check, add item 4:</p>
 <pre><code class="language-markdown">4. After stacked PRs exist, `/sdd-review-fix` (Claude Code: `/sdd:sdd-review-fix`) is visible. Confirm the skill forbids `-b`, `gh pr merge`, and `stack-prs` re-run.
 </code></pre>
-<h3 id="docssuperpowersspecs2026-08-28-sdd-framework-designmd"><code>docs/superpowers/specs/2026-08-28-sdd-framework-design.md</code></h3>
+<h3 id="docssuperpowersspecs2026-08-28-sdd-framework-designmd"><code>`docs/superpowers/specs/2026-08-28-sdd-framework-design.md`</code></h3>
 <p>Immediately after the sentence <code>ブランチ名は </code>sdd-stack/task-N<code>。Task 1 の PR の base は確認済み base branch。Task N の PR の base は </code>sdd-stack/task-(N-1)<code>。途中失敗時は、作れた PR の URL と未作成 Task を報告する。</code> add:</p>
 <pre><code class="language-markdown">公開後の GitHub レビュー修正は `docs/sdd/specs/2026-09-01-stacked-pr-review-fix-design.md` が正。既存の stack branch に attach し、restack しない。
 </code></pre>
@@ -500,8 +521,9 @@ python3 -m pytest -q
 <p>If a matching HTML file was regenerated, add it too.</p>
 <pre><code class="language-bash">git commit -m &quot;Route stacked PR reviews to sdd-review-fix and point finish at land.&quot;
 </code></pre>
-</section>
+</article>
 
 </main>
+</div>
 </body>
 </html>

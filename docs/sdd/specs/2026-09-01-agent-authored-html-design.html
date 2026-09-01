@@ -181,7 +181,7 @@
 <section>
 <h3 id="content-and-document-kinds">Content and document kinds</h3>
 <p>The agent preserves source facts, visible body content, headings, code, lists, tables, links, and their reading order. It may add navigation, skip-link text, document-kind labels, accessibility labels, and metadata, but may not summarize, omit, invent, or reorder source content.</p>
-<p>Glossary terms use <code>dl</code>, <code>dt</code>, and <code>dd</code>; an <code>_Avoid_</code> paragraph stays inside the related <code>dd</code> as a labeled secondary paragraph. An ADR remains a compact decision article and does not gain headings that are absent from Markdown. Spec h2 headings become semantic section blocks. Each plan <code>## Task N:</code> becomes an independent article with a visually prominent number and title, a left rule or number rail, and no invented status. Labeled lead paragraphs such as <code>Goal</code>, <code>Architecture</code>, and <code>Classification</code> become metadata / lead blocks without changing their values.</p>
+<p>Glossary terms use <code>dl</code>, <code>dt</code>, and <code>dd</code>; an <code>Avoid</code> paragraph stays inside the related <code>dd</code> as a labeled secondary paragraph. An ADR remains a compact decision article and does not gain headings that are absent from Markdown. Spec h2 headings become semantic section blocks. Each plan <code>## Task N:</code> becomes an independent article with a visually prominent number and title, a left rule or number rail, and no invented status. Labeled lead paragraphs such as <code>Goal</code>, <code>Architecture</code>, and <code>Classification</code> become metadata / lead blocks without changing their values.</p>
 <p>Unknown source shapes use ordinary semantic HTML. Source heading levels are retained, including multiple h1 or skipped levels; those conditions produce warnings rather than automatic corrections. Heading IDs are stable slugs derived from heading text, with occurrence-order suffixes for duplicates, and all outline links resolve to those IDs.</p>
 </section>
 
@@ -229,7 +229,7 @@
 <ul>
 <li>Unit tests cover target matching, adjacent pair resolution, exact SHA-256 bytes, digest metadata parsing, normal / bootstrap permissions, mixed patches, unknown payloads, and exit codes.</li>
 <li>Temporary Git repositories cover staged changes, PR-base changes, new pairs, multiple documents, CSS-only changes, HTML-only changes, stale pairs, rename, delete, and existing hook wrappers.</li>
-<li>Authored fixtures cover Glossary, ADR, Spec, and Plan structures, including <code>dl</code>, task articles, lead metadata, nested h2 / h3 outlines, duplicate headings, missing outlines, unsafe markup, and irregular heading warnings.</li>
+<li>Authored fixtures cover Glossary, ADR, Spec, and Plan structures, including <code>&lt;dl&gt;</code>, task articles, lead metadata, nested h2 / h3 outlines, duplicate headings, missing outlines, unsafe markup, and irregular heading warnings.</li>
 <li>Validator tests cover landmarks, skip links, <code>lang</code>, CSP, allowed resources, heading IDs, outline links, text order, code, lists, tables, and inaccessible or missing table labels.</li>
 <li>Each host adapter has payload fixtures for allow, deny, bootstrap, unknown input, and policy failure. No host application or subagent is run in CI.</li>
 <li>Exact HTML golden comparisons are replaced by structural, security, digest, and text-fidelity assertions.</li>

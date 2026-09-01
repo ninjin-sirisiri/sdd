@@ -1,20 +1,23 @@
 <!DOCTYPE html>
-<html lang="und">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src &#x27;none&#x27;; img-src &#x27;self&#x27; data:; style-src &#x27;self&#x27;; base-uri &#x27;none&#x27;; form-action &#x27;none&#x27;; frame-ancestors &#x27;none&#x27;">
+<meta name="sdd-source-digest" content="sha256:fd33e5fc906193e338652ae9d98ee4b13f44e7d706b4d37a53d55b0b328d067d">
 <title>0001. Land stacked PRs without restack</title>
 <link rel="stylesheet" href="../sdd/assets/sdd.css">
 </head>
-<body>
-<header>
-<p>ADR</p>
+<body data-document-kind="adr">
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="document-header" data-document-kind="adr">
+<p class="document-kind">ADR</p>
 </header>
-<main>
+<main id="content" tabindex="-1">
 <h1 id="0001-land-stacked-prs-without-restack">0001. Land stacked PRs without restack</h1>
+<article class="decision-article">
 <p>GitHub review on a lower stacked PR needs new commits, and the usual fix is to rebase descendants and force-push. Review fixes update the existing <code>sdd-stack/task-N</code> ref in place, descendants are not restacked, and the stack is integrated by landing from the bottom. Extra branches would break the merge chain, and restack would need force-push, which this pack does not allow.</p>
-
+</article>
 </main>
 </body>
 </html>
