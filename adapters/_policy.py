@@ -50,15 +50,16 @@ def target_source_paths(paths: list[str]) -> list[str]:
     return list(dict.fromkeys(selected))
 
 
-def invoke_policy(request: dict[str, Any]) -> dict[str, Any]:
-    """Invoke the shared policy CLI without involving a shell."""
-
-    command = [sys.executable, str(PACK_ROOT / "scripts" / "html-docs"), "edit-check"]
+def _invoke_cli(
+    arguments: list[str],
+    input_text: str | None = None,
+) -> dict[str, Any]:
+    command = [sys.executable, str(PACK_ROOT / "scripts" / "html-docs"), *arguments]
     try:
         completed = subprocess.run(
             command,
             cwd=Path.cwd(),
-            input=json.dumps(request, ensure_ascii=False),
+            input=input_text,
             text=True,
             capture_output=True,
             timeout=POLICY_TIMEOUT_SECONDS,
@@ -94,3 +95,15 @@ def invoke_policy(request: dict[str, Any]) -> dict[str, Any]:
             "run html-docs doctor and check the adapter setup"
         )
     return result
+
+
+def invoke_policy(request: dict[str, Any]) -> dict[str, Any]:
+    """Invoke the shared edit policy CLI without involving a shell."""
+
+    return _invoke_cli(["edit-check"], json.dumps(request, ensure_ascii=False))
+
+
+def invoke_validation(paths: list[str]) -> dict[str, Any]:
+    """Validate current Target companions without treating the event as an edit."""
+
+    return _invoke_cli(["validate", *paths])

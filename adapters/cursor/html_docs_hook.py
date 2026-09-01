@@ -12,6 +12,7 @@ from _policy import (
     AdapterInputError,
     PolicyExecutionError,
     invoke_policy,
+    invoke_validation,
     target_source_paths,
 )
 
@@ -162,11 +163,21 @@ def _response(decision: str, message: str = "") -> dict[str, Any]:
 
 
 def handle_payload(payload: Any) -> dict[str, Any]:
+    event = (
+        payload.get("hook_event_name", payload.get("event", "Unknown"))
+        if isinstance(payload, dict)
+        else "Unknown"
+    )
     try:
         request = request_from_payload(payload)
         if request is None:
             return _response("allow")
-        result = invoke_policy(request)
+        html_paths = (
+            [path for path in request["paths"] if path.casefold().endswith(".html")]
+            if event == "afterFileEdit"
+            else []
+        )
+        result = invoke_validation(html_paths) if html_paths else invoke_policy(request)
         decision = result["decision"]
         message = result.get("message", "")
         return _response(decision, message if isinstance(message, str) else "")

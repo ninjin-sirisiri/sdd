@@ -55,11 +55,11 @@ def run_hook(path: Path, repo: Path, payload: object) -> dict[str, Any]:
     ("hook", "fixture", "expected"),
     (
         (CURSOR_HOOK, "pre_tool_use.json", "allow"),
-        (CURSOR_HOOK, "after_file_edit.json", "deny"),
+        (CURSOR_HOOK, "after_file_edit.json", "allow"),
         (CURSOR_HOOK, "stop.json", "allow"),
         (CURSOR_HOOK, "unknown.json", "deny"),
         (CLAUDE_HOOK, "pre_tool_use.json", "allow"),
-        (CLAUDE_HOOK, "post_tool_use.json", "deny"),
+        (CLAUDE_HOOK, "post_tool_use.json", "allow"),
         (CLAUDE_HOOK, "unknown.json", "deny"),
     ),
 )

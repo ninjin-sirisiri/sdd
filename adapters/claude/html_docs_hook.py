@@ -12,6 +12,7 @@ from _policy import (
     AdapterInputError,
     PolicyExecutionError,
     invoke_policy,
+    invoke_validation,
     target_source_paths,
 )
 
@@ -144,7 +145,12 @@ def handle_payload(payload: Any) -> dict[str, Any]:
         event, request = request_from_payload(payload)
         if request is None:
             return _response(event, "allow", "No synchronized target documents are affected.")
-        result = invoke_policy(request)
+        html_paths = (
+            [path for path in request["paths"] if path.casefold().endswith(".html")]
+            if event == "PostToolUse"
+            else []
+        )
+        result = invoke_validation(html_paths) if html_paths else invoke_policy(request)
         message = result.get("message", "")
         reason = message if isinstance(message, str) and message else "The html-docs policy completed."
         return _response(event, result["decision"], reason)

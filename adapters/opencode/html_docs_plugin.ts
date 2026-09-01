@@ -192,8 +192,23 @@ export async function invokePolicy(
   directory: string,
   policyRequest: PolicyRequest,
 ): Promise<PolicyResult> {
+  return invokeCli(directory, ["edit-check"], policyRequest)
+}
+
+export async function invokeValidation(
+  directory: string,
+  paths: string[],
+): Promise<PolicyResult> {
+  return invokeCli(directory, ["validate", ...paths])
+}
+
+async function invokeCli(
+  directory: string,
+  arguments_: string[],
+  input?: PolicyRequest,
+): Promise<PolicyResult> {
   const python = process.env.SDD_PYTHON || "python3"
-  const child = Bun.spawn([python, POLICY_CLI, "edit-check"], {
+  const child = Bun.spawn([python, POLICY_CLI, ...arguments_], {
     cwd: directory,
     stdin: "pipe",
     stdout: "pipe",
@@ -205,7 +220,7 @@ export async function invokePolicy(
     child.kill()
   }, POLICY_TIMEOUT_MS)
   try {
-    child.stdin.write(JSON.stringify(policyRequest))
+    if (input !== undefined) child.stdin.write(JSON.stringify(input))
     child.stdin.end()
     const exitCode = await child.exited
     if (timedOut) throw new Error("html-docs policy timed out; run html-docs doctor")
@@ -263,7 +278,10 @@ export const HtmlDocsPlugin = async (context: PluginContext): Promise<PluginHook
       if (!isRecord(event) || event.type !== "file.edited") return
       try {
         const policyRequest = requestFromFileEdited(event)
-        const result = await invokePolicy(repositoryRoot, policyRequest)
+        const htmlPaths = policyRequest.paths.filter((path) => path.toLowerCase().endsWith(".html"))
+        const result = htmlPaths.length
+          ? await invokeValidation(repositoryRoot, htmlPaths)
+          : await invokePolicy(repositoryRoot, policyRequest)
         await feedback(context.client, resultMessage(result), result.decision === "deny" ? "error" : "info")
       } catch (error) {
         await feedback(

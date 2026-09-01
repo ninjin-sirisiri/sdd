@@ -76,6 +76,6 @@ test("runs exported hooks against OpenCode fixtures and reports post-edit feedba
 
   expect(toasts).toHaveLength(1)
   expect(toasts[0]).toMatchObject({
-    body: { title: "HTML docs", variant: "error" },
+    body: { title: "HTML docs", variant: "info" },
   })
 })
