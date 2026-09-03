@@ -1,4 +1,7 @@
 import { expect, test } from "bun:test"
+import { mkdtemp, rm } from "node:fs/promises"
+import { join } from "node:path"
+import { tmpdir } from "node:os"
 
 import {
   HtmlDocsPlugin,
@@ -42,6 +45,23 @@ test("preserves explicit bootstrap options", () => {
     operation: "edit",
     paths: ["CONTEXT.md"],
   })
+})
+
+test("bootstraps an existing companion before an OpenCode write without a custom argument", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "sdd-opencode-"))
+  try {
+    await Bun.write(join(directory, "CONTEXT.md"), "# Existing context\n")
+    const hooks = await HtmlDocsPlugin({ directory, worktree: directory })
+
+    await expect(
+      hooks["tool.execute.before"](
+        { tool: "write", sessionID: "session", callID: "call" },
+        { args: { filePath: "CONTEXT.html", content: "<html>" } },
+      ),
+    ).resolves.toBeUndefined()
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
 })
 
 test("rejects unknown and malformed payloads", () => {

@@ -62,6 +62,8 @@ Enable the Cursor Agent edit hook explicitly with `adapters/cursor/hooks.json.ex
 
 Explicitly register `adapters/opencode/html_docs_plugin.ts` as `.opencode/plugins/html_docs_plugin.ts` in the consuming repository. It checks `tool.execute.before` before file edits and validates `file.edited` events afterward. Keep the plugin's relative access to the pack's `scripts/html-docs` entrypoint intact.
 
+The built-in OpenCode `write` tool has no `bootstrap_paths` argument. For a missing or metadata-less Target companion, the plugin invokes the bounded `bootstrap` check internally before the write, so no host-specific argument is required.
+
 The host registrations are opt-in. The pack does not install host configuration automatically. The examples live under `adapters/`; copy or link the required adapter and registration into the consuming repository without changing the paths expected by `html-docs doctor`.
 
 ## Authoring Workflow

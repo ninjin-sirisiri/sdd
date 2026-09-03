@@ -112,18 +112,39 @@ function request(paths: string[], ...values: JsonRecord[]): PolicyRequest {
   }
 }
 
-function targetSourcePaths(paths: string[]): string[] {
-  const root = resolve(process.cwd())
-  return [...new Set(paths.filter((path) => {
-    const candidate = resolve(isAbsolute(path) ? path : resolve(root, path))
-    const relativePath = relative(root, candidate).replaceAll("\\", "/")
-    const parts = relativePath.split("/")
-    return (
-      relativePath === "CONTEXT.md"
-      || (parts.length === 3 && parts[0] === "docs" && parts[1] === "adr" && parts[2].endsWith(".md") && !parts[2].startsWith("."))
-      || (parts.length === 4 && parts[0] === "docs" && parts[1] === "sdd" && (parts[2] === "specs" || parts[2] === "plans") && parts[3].endsWith(".md") && !parts[3].startsWith("."))
-    )
+function repositoryRelative(root: string, path: string): string {
+  const repositoryRoot = resolve(root)
+  const candidate = resolve(isAbsolute(path) ? path : resolve(repositoryRoot, path))
+  return relative(repositoryRoot, candidate).replaceAll("\\", "/")
+}
+
+function isTargetPath(relativePath: string, extension: ".md" | ".html"): boolean {
+  const parts = relativePath.split("/")
+  return (
+    relativePath === `CONTEXT${extension}`
+    || (parts.length === 3 && parts[0] === "docs" && parts[1] === "adr" && parts[2].endsWith(extension) && !parts[2].startsWith("."))
+    || (parts.length === 4 && parts[0] === "docs" && parts[1] === "sdd" && (parts[2] === "specs" || parts[2] === "plans") && parts[3].endsWith(extension) && !parts[3].startsWith("."))
+  )
+}
+
+function targetSourcePaths(paths: string[], root = process.cwd()): string[] {
+  return [...new Set(paths.filter((path) => isTargetPath(repositoryRelative(root, path), ".md")))]
+}
+
+function targetBootstrapSourcePaths(root: string, paths: string[]): string[] {
+  return [...new Set(paths.flatMap((path) => {
+    const relativePath = repositoryRelative(root, path)
+    if (!isTargetPath(relativePath, ".html")) return []
+    return [relativePath.replace(/\.html$/, ".md")]
   }))]
+}
+
+function reportedBootstrapPaths(result: PolicyResult, sourcePaths: string[]): string[] {
+  if (result.decision !== "allow" || !Array.isArray(result.paths)) return []
+  const reported = new Set(result.paths.filter((path): path is string => typeof path === "string"))
+  return sourcePaths
+    .map((sourcePath) => sourcePath.replace(/\.md$/, ".html"))
+    .filter((companionPath) => reported.has(companionPath))
 }
 
 export function requestFromToolExecuteBefore(
@@ -202,6 +223,32 @@ export async function invokeValidation(
   return invokeCli(directory, ["validate", ...paths])
 }
 
+export async function invokeBootstrap(
+  directory: string,
+  paths: string[],
+): Promise<PolicyResult> {
+  return invokeCli(directory, ["bootstrap", ...paths])
+}
+
+async function requestForToolExecuteBefore(
+  directory: string,
+  input: ToolExecuteInput,
+  output: ToolExecuteOutput,
+): Promise<PolicyRequest> {
+  const policyRequest = requestFromToolExecuteBefore(input, output)
+  if (input.tool !== "write" || policyRequest.bootstrap_paths?.length) return policyRequest
+
+  // OpenCode's built-in write schema cannot carry bootstrap_paths, so obtain the
+  // bounded grant for an eligible companion in the same before-hook operation.
+  const sourcePaths = targetBootstrapSourcePaths(directory, policyRequest.paths)
+  if (!sourcePaths.length) return policyRequest
+
+  const bootstrapResult = await invokeBootstrap(directory, sourcePaths)
+  const bootstrapPaths = reportedBootstrapPaths(bootstrapResult, sourcePaths)
+  if (!bootstrapPaths.length) return policyRequest
+  return { ...policyRequest, bootstrap_paths: bootstrapPaths }
+}
+
 async function invokeCli(
   directory: string,
   arguments_: string[],
@@ -270,7 +317,7 @@ export const HtmlDocsPlugin = async (context: PluginContext): Promise<PluginHook
   const repositoryRoot = context.worktree || context.directory
   return {
     "tool.execute.before": async (input, output) => {
-      const policyRequest = requestFromToolExecuteBefore(input, output)
+      const policyRequest = await requestForToolExecuteBefore(repositoryRoot, input, output)
       const result = await invokePolicy(repositoryRoot, policyRequest)
       requirePolicyAllow(result)
     },
