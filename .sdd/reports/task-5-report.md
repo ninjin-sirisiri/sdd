@@ -57,7 +57,7 @@ is force-added under `.sdd/reports/`.
 ```text
 $ uvx --from pytest pytest -q tests/test_review_package.py tests/test_stack_prs.py
 .................................                                        [100%]
-33 passed in 5.39s
+33 passed in 5.43s
 exit=0
 
 $ git diff --check
@@ -109,8 +109,8 @@ Observed (`review-mixed/transcript-v2.json`, exit 0):
 - Held item 3 and dependent item 4, asked what the discount rule is, and did not
   guess or commit.
 - Ran `python3 -m unittest discover -s tests -v`: `Ran 5 tests ... OK`.
-- Side effects (`review-mixed/status.txt`, `review-mixed/diff.patch`): two
-  tracked files changed, no commit, `__pycache__` untracked.
+- Side effects (`review-mixed/status-v2.txt`, `review-mixed/diff-v2-code.patch`):
+  two tracked files changed, no commit, `__pycache__` untracked.
 
 Held items: 3 and 4. Continued independent work: 1, 2, and 5. Verification
 covered the completed items. This is the intended mixed-review behavior. The
@@ -191,7 +191,8 @@ review remains available only when the human asks.
 - `b37b618` — `feat: align review and investigation support skills`
 - `dab8460` — `docs: record task 5 evaluation and report` (includes this report
   and the evaluation record)
-- Follow-up docs commit — records the neutral-prompt S4 v2 evidence.
+- `6b6f4ce` — `docs: record task 5 neutral-prompt trial`
+- Follow-up docs commit — fixes the report's trial-artifact paths.
 
 ## Notes and concerns
 
