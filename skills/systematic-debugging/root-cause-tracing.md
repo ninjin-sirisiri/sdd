@@ -14,12 +14,12 @@ digraph when_to_use {
     "Can trace backwards?" [shape=diamond];
     "Fix at symptom point" [shape=box];
     "Trace to original trigger" [shape=box];
-    "BETTER: Also add defense-in-depth" [shape=box];
+    "CONSIDER: checks at boundaries it crosses" [shape=box];
 
     "Bug appears deep in stack?" -> "Can trace backwards?" [label="yes"];
     "Can trace backwards?" -> "Trace to original trigger" [label="yes"];
     "Can trace backwards?" -> "Fix at symptom point" [label="no - dead end"];
-    "Trace to original trigger" -> "BETTER: Also add defense-in-depth";
+    "Trace to original trigger" -> "CONSIDER: checks at boundaries it crosses";
 }
 ```
 
@@ -123,11 +123,15 @@ Runs tests one-by-one, stops at first polluter. See script for usage.
 
 **Fix:** Made tempDir a getter that throws if accessed before beforeEach
 
-**Also added defense-in-depth:**
+**Also added checks and instrumentation at the boundaries the empty value crossed:**
 - Layer 1: Project.create() validates directory
 - Layer 2: WorkspaceManager validates not empty
 - Layer 3: NODE_ENV guard refuses git init outside tmpdir
 - Layer 4: Stack trace logging before git init
+
+Those checks covered distinct bypass paths in that codebase. Another change may
+need fewer checks, or checks at different boundaries, depending on its trust
+boundaries and actual bypass paths.
 
 ## Key Principle
 
@@ -138,8 +142,8 @@ digraph principle {
     "Trace backwards" [shape=box];
     "Is this the source?" [shape=diamond];
     "Fix at source" [shape=box];
-    "Add validation at each layer" [shape=box];
-    "Bug impossible" [shape=doublecircle];
+    "Add checks for real bypass paths" [shape=box];
+    "Regression covered" [shape=doublecircle];
     "NEVER fix just the symptom" [shape=octagon, style=filled, fillcolor=red, fontcolor=white];
 
     "Found immediate cause" -> "Can trace one level up?";
@@ -148,18 +152,23 @@ digraph principle {
     "Trace backwards" -> "Is this the source?";
     "Is this the source?" -> "Trace backwards" [label="no - keeps going"];
     "Is this the source?" -> "Fix at source" [label="yes"];
-    "Fix at source" -> "Add validation at each layer";
-    "Add validation at each layer" -> "Bug impossible";
+    "Fix at source" -> "Add checks for real bypass paths";
+    "Add checks for real bypass paths" -> "Regression covered";
 }
 ```
 
 **NEVER fix just where the error appears.** Trace back to find the original trigger.
 
+Adding validation after the fix is a judgment call. Choose checks by trust
+boundary and by the bypass paths the bad value can actually take. Do not copy
+the same check into every layer just to claim coverage; state what each check
+covers and why the remaining paths are acceptable.
+
 ## Stack Trace Tips
 
 **In tests:** Use `console.error()` not logger - logger may be suppressed
 **Before operation:** Log before the dangerous operation, not after it fails
-**Include context:** Directory, cwd, environment variables, timestamps
+**Include context:** Directory, cwd, timestamps, and non-sensitive environment metadata such as `NODE_ENV` or key presence (`SET`/`UNSET`). Never log secret values, tokens, passwords, or full environment dumps.
 **Capture stack:** `new Error().stack` shows complete call chain
 
 ## Real-World Impact
@@ -167,5 +176,5 @@ digraph principle {
 From debugging session (2025-10-03):
 - Found root cause through 5-level trace
 - Fixed at source (getter validation)
-- Added 4 layers of defense
+- Added checks and instrumentation at four boundaries the bad value could cross
 - 1847 tests passed, zero pollution
