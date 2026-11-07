@@ -37,7 +37,7 @@ Do not return control to ask "continue?". Do not judge while a subagent or backg
 
 1. If the condition is completing an SDD plan (or the user invoked this with execute), use sdd-execute. That loop already advances when a Task is complete.
 2. Otherwise do the next useful unit of work. Dispatch a subagent when the unit is an implementation task; do not implement plan Tasks in this controller session.
-3. When that unit finishes, judge the condition against evidence already in this session (commands you ran, files you read, ledger lines). Verdict:
+3. When that unit finishes, judge the condition against available evidence (commands and results, files you read, ledger lines, or a task report's verification record). Verdict:
    - **Met** — Cursor: UpdateGoal `complete`. Stop. Tell the human what held.
    - **Not yet** — say what is missing in one line, then continue.
    - **Impossible** — stop. Cursor: leave the goal active (do not mark complete). Tell the human why.

@@ -129,7 +129,11 @@ Host hooks provide best-effort edit ordering only. Shell, MCP, manual, and hook-
 
 sdd-design -> sdd-plan -> sdd-execute -> sdd-finish
 
-`sdd-execute` dispatches one isolated subagent per plan Task. The controller judges that Task complete and starts the next; there is no implementer/reviewer loop.
+Bounded work can be implemented in this session without a spec or plan. It still asks once whether to create a worktree. TDD is a method chosen by the behavior change and regression risk, not a gate in bounded work or in execute.
+
+`sdd-execute` dispatches one isolated subagent per plan Task. The controller judges the Task complete from its deliverables and verification evidence, reuses evidence that still covers the final state, and starts the next Task. There is no implementer/reviewer loop and no automatic review gate; review happens when the human asks.
+
+`sdd-finish` needs full-suite evidence that covers the final state. Reuse a valid record when it covers that state; otherwise run the suite.
 
 `sdd-goal` is the portable analog of Claude Code `/goal`: set a decidable completion condition and keep working until it holds. On Cursor invoke `/sdd-goal`. On Claude Code, native `/goal` still provides the overlay; `/sdd:sdd-goal` is the same work loop, and uses `sdd-execute` when the condition is a plan.
 
@@ -139,17 +143,33 @@ After stacked PRs exist, GitHub review fixes use `sdd-review-fix` (existing `sdd
 |---|---|
 | sdd-review-fix | GitHub review on an open stacked PR after finish option 4 |
 
+## Judgment And Handoff
+
+Confirm with the human only for unagreed user-facing behavior, permissions and safety, destructive operations, external side effects beyond an existing authorization, and costly or irreversible changes. Investigate repository facts before asking. Within the agreed spec and constraints, decide reversible implementation details such as naming, internal structure, component-local state, and the order of investigation, implementation, and tests. Record only the assumptions that affect later work.
+
+A supporting skill supplies a method. It does not override the agreed spec, the constraints, or the calling skill's execution contract, and it does not add its own mandatory TDD rule, review gate, or global stop condition.
+
+### Backend shared contract to a separate frontend session
+
+1. In the backend design, identify the contract a later phase will consume and record it in the backend spec: expected user operations and results, the API or data meaning the later phase depends on, permissions, state changes, error behavior, and settled versus undecided items. Ask about shared-contract decisions that block dependent work before implementing against them. For example, list ordering, pagination, and whether a delete can be cancelled or undone belong before the backend work that depends on them.
+2. During backend implementation, when an agreed shared-contract item changes, reflect the decision in the canonical backend spec before declaring the backend complete and handing it off. Do not leave it only in `.sdd/progress.md`, a task report, or conversation, and do not rewrite an already recorded task range.
+3. Start the frontend design in a separate session. Read the canonical backend spec plus the implementation and tests it names. Reference the spec path and the dependent scope in the frontend spec; do not create a second authority. Do not re-ask facts that the spec, code, or tests already settle. Confirm only important unresolved items, contradictions, or new requirements, with their impact.
+
+### UI-only change
+
+A UI-only change does not need a fictional backend spec or a new dependency. When the change has no later phase, keep placement, colors, component-local state, and similar choices inside the agreed constraints. Decide them in the frontend design or implementation, record only assumptions that affect later work, and do not add an approval round for each local choice. If a local choice would change a shared contract, treat it as a contract change instead.
+
 ## Supporting Superpowers skills
 
 This pack vendors Superpowers 6.3.0 skills used during implementation. You do not need the Superpowers plugin. Pipeline work still uses sdd-* (not brainstorming / writing-plans / executing-plans / subagent-driven-development / finishing-a-development-branch).
 
 | Skill | When |
 |---|---|
-| test-driven-development | Bounded features and bugfixes; optional during execute |
+| test-driven-development | Chosen by behavior and regression risk; optional in bounded work and execute |
 | systematic-debugging | Bugs, test failures, unexpected behavior |
-| verification-before-completion | Before sdd-finish claims the branch is complete |
-| using-git-worktrees | Isolate: optional before implementation. Attach: existing `sdd-stack/task-N` from sdd-review-fix (`-b` forbidden) |
-| requesting-code-review | Reviews the human asked for (not an execute gate) |
+| verification-before-completion | Before a completion claim or sdd-finish; evidence must cover the final state |
+| using-git-worktrees | Isolate: optional before implementation; if creation fails, ask for another mechanism or explicit in-place permission. Attach: existing `sdd-stack/task-N` from sdd-review-fix (`-b` forbidden) |
+| requesting-code-review | Reviews the human asked for (not an execute or finish gate) |
 | receiving-code-review | Acting on review feedback |
 | dispatching-parallel-agents | Independent investigations (not plan implementers) |
 

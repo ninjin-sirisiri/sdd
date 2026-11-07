@@ -105,6 +105,10 @@ pagination, and delete cancellation belong before backend work that depends on
 them. Page layout, colors, and component-local state can stay in frontend design
 when they do not change the shared contract.
 
+For a destructive operation, ask explicitly whether it is immediate and final,
+or can be cancelled or undone, and what a failed or repeated operation returns.
+A recommendation or an assumed non-goal is not the human's agreement.
+
 Do not implement on top of an important undecided item by inventing agreement.
 Choose investigation, a small probe, or a question to the human. Independent
 work may proceed. Distinguish a deliberate deferral from an unnoticed decision.
