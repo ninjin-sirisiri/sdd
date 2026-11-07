@@ -818,6 +818,13 @@ Final validation result: all ten scenarios and S1-S3 are implemented and match
 the expected judgments; S4-S7 are also covered. No scenario is unimplemented,
 deviates from its expected judgment, or has only a leading-prompt result.
 
+Pack verification for this record, reported separately from the model trials:
+`uvx --from pytest pytest -q` passed with `142 passed`; `git diff --check` was
+clean; `python3 scripts/html-docs check --staged` returned `allow` with no
+synchronized target documents affected. These checks cover the pack's document,
+ledger, and stacked-PR contracts; they are not evidence that the model judgments
+above occurred.
+
 ## Post-change trial plan for later tasks
 
 | Owner | Checks to run | Notes |
