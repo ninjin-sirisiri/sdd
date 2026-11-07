@@ -1,29 +1,33 @@
 ---
 name: requesting-code-review
-description: Use when the human requests a review after a major feature or before merging. Do not use as an sdd-execute task gate.
+description: Use when the human asks for a code review, including after a major feature or before merging. Do not start a review on your own after a feature, a stalled task, or every sdd-execute Task; it is not an execute gate.
 ---
 
 # Requesting Code Review
 
-sdd-execute does not review as a gate. Use this skill only when the human asks for a review, or before merge if they want one. The reviewer gets precisely crafted context — never your session's history.
+A review happens when the human asks for one. sdd-execute and sdd-finish do not dispatch a reviewer as a gate. Do not start a review just because a feature is complete, a task is stuck, or every Task ended. If you think a review would help, say why and let the human decide.
+
+The reviewer gets precisely crafted context — never your session's history.
 
 **Core principle:** Review when asked, with isolated context.
 
 ## When to Request Review
 
-**Use:**
-- The human asked for a review
-- After completing a major feature (outside the execute loop)
-- Before merge to main, if they want a review
+**Use when the human asks for a review.** The situation explains why the review may be useful:
 
-**Optional:**
-- When stuck (fresh perspective)
-- Before refactoring (baseline check)
-- After fixing a complex bug
+- after a feature or major change
+- before merging
+- for a fresh perspective on a problem
+- as a baseline before refactoring
+- after a complex bug fix
+
+The human's request starts the review. Use this skill to run it well, not to decide on your own that one is required.
 
 **Do not use:**
 - After each sdd-execute Task — the controller judges complete and moves on
-- As a substitute for sdd-execute's completeness check
+- Because a feature is complete or a task is stalled — neither is a review request
+- As a substitute for sdd-execute's completeness check or sdd-finish's verification
+- As a new mandatory gate in sdd-execute or sdd-finish
 
 ## How to Request
 
@@ -32,6 +36,8 @@ sdd-execute does not review as a gate. Use this skill only when the human asks f
 BASE_SHA=$(git merge-base HEAD origin/main)  # or the execute branch baseline
 HEAD_SHA=$(git rev-parse HEAD)
 ```
+
+Use the task or feature range the human wants reviewed, not the whole history.
 
 **2. Dispatch code reviewer subagent:**
 
@@ -44,17 +50,19 @@ Dispatch a `general-purpose` subagent, filling the template at [code-reviewer.md
 - `{HEAD_SHA}` - Ending commit
 
 **3. Act on feedback:**
-- Fix Critical issues immediately
-- Fix Important issues before proceeding
+- Verify each finding against the code and requirements before changing anything; use receiving-code-review
+- Fix Critical issues the human asked you to address
+- Fix Important issues before proceeding, or tell the human why not
 - Note Minor issues for later
-- Push back if reviewer is wrong (with reasoning)
+- Push back if the reviewer is wrong (with reasoning and evidence)
+- Report the outcome and the verification that covers it
 
 ## Example
 
 ```
-[Human asked for a review after Task 2]
+[Human: "Review the Task 2 changes before I merge."]
 
-BASE_SHA=$(git log --oneline | grep "Task 1" | head -1 | awk '{print $1}')
+BASE_SHA=<Task 1 completion commit>
 HEAD_SHA=$(git rev-parse HEAD)
 
 [Dispatch code reviewer subagent]
@@ -68,12 +76,16 @@ HEAD_SHA=$(git rev-parse HEAD)
 
 | Excuse | Reality |
 |--------|---------|
-| "I'll just review the diff myself instead of dispatching a reviewer" | You're the coordinator — reviewing the diff inline burns the context window you need to keep driving the work. Dispatch a reviewer subagent: the diff and the evaluation live in its context, and only the findings come back to you. |
+| "I'll just review the diff myself instead of dispatching a reviewer" | The human asked for a review. Dispatch a reviewer subagent: the diff and the evaluation live in its context, and only the findings come back to you. |
 | "The reviewer needs my whole session history to understand the change" | Hand it precisely crafted context, never your session's history. That keeps the reviewer on the work product, not your thought process. |
+| "The feature is complete, so a review should run now" | Completion is not a review request. Ask the human, or continue without one. |
+| "The implementer is stuck, so dispatch a reviewer" | Being stuck is not a review request. Use systematic-debugging or ask the human for the direction you need. |
 
 ## Red Flags
 
 **Never:**
+- Dispatch a review without a human request
+- Use review findings as an automatic execute or finish gate
 - Ignore Critical issues the human asked you to address
 - Argue with valid technical feedback
 
