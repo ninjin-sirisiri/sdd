@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; style-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none';">
+<meta name="sdd-source-digest" content="sha256:707a3a526343619c5b3ec9e70333203a08d06e16a520109cfa517c88bd3b1da1">
+<title>SDD skillsの判断基準と工程間引き継ぎ</title>
+<link rel="stylesheet" href="../assets/sdd.css">
+</head>
+<body data-document-kind="spec">
+<a class="skip-link" href="#content">本文へ移動</a>
+<header class="document-header" data-document-kind="spec">
+<p class="document-kind">設計仕様</p>
+</header>
+<div class="document-layout">
+<aside class="document-outline" aria-labelledby="outline-label">
+<details open>
+<summary id="outline-label">この文書の構成</summary>
+<nav aria-label="文書内の目次">
+<ol>
+<li><a href="#problem">Problem</a></li>
+<li><a href="#goals">Goals</a></li>
+<li><a href="#non-goals">Non-goals</a></li>
+<li><a href="#architecture">Architecture</a>
+<ol>
+<li><a href="#judgment-policy">Judgment policy</a></li>
+<li><a href="#shared-specification">Shared specification</a></li>
+<li><a href="#plan-and-task-handoff">Plan and task handoff</a></li>
+<li><a href="#verification-policy">Verification policy</a></li>
+</ol>
+</li>
+<li><a href="#components">Components</a></li>
+<li><a href="#data-flow">Data flow</a></li>
+<li><a href="#error-handling">Error handling</a></li>
+<li><a href="#testing">Testing</a></li>
+<li><a href="#compatibility-and-boundaries">Compatibility and boundaries</a></li>
+<li><a href="#consuming-paths">Consuming paths</a></li>
+<li><a href="#success">Success</a></li>
+</ol>
+</nav>
+</details>
+</aside>
+<main id="content" tabindex="-1">
+<h1 id="sdd-skillsの判断基準と工程間引き継ぎ">SDD skillsの判断基準と工程間引き継ぎ</h1>
+<p class="metadata"><strong>Classification:</strong> architectural</p>
+<p class="metadata"><strong>Chosen approach:</strong> 実行構造は維持し、skillの規則を「守るべき成果・権限境界」と「モデルが選べる達成方法」に分ける。バックエンドとフロントエンドで別々のspec・planを作る場合は、バックエンドspec内の共通仕様を正本として引き継ぐ。</p>
+<p>本specは、設計面談、planの詳細度、工程間の仕様共有、支援skillの適用関係を改める。既存のフレームワーク仕様より本specを優先するのは、この変更範囲だけとする。HTML、stacked PR、Task抽出、台帳のデータ契約は変更しない。</p>
+<section>
+<h2 id="problem">Problem</h2>
+<ul>
+<li>バックエンドのspec・planを完了してからフロントのspec・planを作る利用で、本来はバックエンド着手前に決めるべき仕様が、フロント設計時に初めて質問される。</li>
+<li>現行designは、すべての判断を質問し、frontierを空にすることを求める。一方、後工程の利用方法をどこまで先に検討するか、未決事項をどこで解消するかは明確でない。</li>
+<li>executeには前Taskのインターフェースを渡す指示があるが、別spec・別plan・別セッションへ引き継ぐ正本と、実装中の決定を戻す期限が明確でない。無視対象の作業台帳だけに決定を残すと、次の設計から見えなくなる。</li>
+<li>executeの任意TDD・検証報告の再利用と、支援skillの絶対TDD・独立再検証が整合していない。質問形式、固定回数、文体の禁止なども、品質や安全の条件と同じ強さで書かれている。</li>
+</ul>
+</section>
+<section>
+<h2 id="goals">Goals</h2>
+<ul>
+<li>後工程へ影響する未決事項を、依存するバックエンド実装に入る前に見つける。</li>
+<li>共通仕様の正本と後工程からの参照を明確にし、確定事項の再質問と仕様の二重管理を減らす。</li>
+<li>重要な仕様変更や外部副作用は人間が判断し、低リスクで可逆的な実装判断はモデルが進められるようにする。</li>
+<li>テストの必要性とテストを書く順番を分離し、検証証拠の有効性を基準に完了を判断する。</li>
+<li>文面の整合性だけでなく、実際の質問・判断・引き継ぎを代表シナリオで確認する。</li>
+</ul>
+</section>
+<section>
+<h2 id="non-goals">Non-goals</h2>
+<ul>
+<li>フロントの詳細設計をすべて終えるまで、バックエンドの全作業を禁止すること。</li>
+<li>フロント段階での質問や、合意に基づくバックエンドへの後戻りを禁止すること。</li>
+<li>独立した共通仕様書、必須の新しい利用側設定、新しいworkflow engineを導入すること。</li>
+<li>Task実装の並列化、controllerによる代行実装、TaskとPRの分離、モデルの固定、必須レビューループの導入。</li>
+<li>HTMLの別著作、digest、編集順序、bootstrap、validator、host adapter、共有CSSの見直し。</li>
+<li>新しいLLM評価基盤、CIでの実モデル・hostアプリ実行、無関係な既存文書の一括移行。</li>
+</ul>
+</section>
+<section>
+<h2 id="architecture">Architecture</h2>
+<section>
+<h3 id="judgment-policy">Judgment policy</h3>
+<p>人間に確認するのは、未合意の利用者向け仕様、権限・安全性、破壊的操作、既存の許可を超える外部副作用、高コストまたは不可逆な変更である。既に合意された判断を繰り返し聞かない。重要な判断を単に「低リスクな仮定」と呼んで回避してはならない。</p>
+<p>合意済みの仕様・制約の範囲で、モデルは内部構成、命名、調査・実装・テストの進め方などを判断する。後の作業に影響する仮定と判断理由だけを短く残し、すべての細部の記録は要求しない。リポジトリから調べられる事実は、質問する前に調べる。</p>
+<p>支援skillは、合意済みの仕様・制約や呼出元skillの実行契約を上書きしない。必要な手法を提供するものであり、独立してTDD必須化、レビューゲート、全体停止条件を追加しない。安全境界と成功主張に必要な証拠の基準は、どの経路でも維持する。</p>
+<p>分類は調査で更新できる初期判断とする。spike、bounded、architecturalの区分と、それぞれのspec・planの要否は維持する。分類を下げるために承認や仕様の必要条件を回避してはならない。</p>
+<p>面談の終了条件は、目的、受入条件、重要な制約、前後工程に影響する判断が合意済み、または未解決で影響範囲が明示されていることとする。すべての実装詳細の確定や質問数を終了条件にしない。質問の数・形式・まとめ方と説明の粒度は、依存関係とユーザーの希望に合わせる。</p>
+<p>実装開始前の仕様・範囲の承認は残す。節ごとの機械的な承認待ちを必須にせず、承認後の重要な変更は該当する判断だけ再確認する。用語と条件を満たすADRの記録先・採用条件は維持し、重要な合意を失わない範囲で記録のまとめ方を選べるようにする。</p>
+</section>
+<section>
+<h3 id="shared-specification">Shared specification</h3>
+<p>バックエンドspecの中に、後工程と共有する仕様を識別できる節を置く。専用の新規ファイルや固定の見出し文字列は要求しない。内容は、関連するものだけを記録する。</p>
+<p>この引き継ぎ規則は、前後工程が共通契約に依存する変更に適用する。UIだけで完結する変更や後工程のない変更に、架空のバックエンドspecや新しい依存関係は要求しない。</p>
+<ul>
+<li>想定する利用者の操作と、成功時・失敗時に期待する結果。</li>
+<li>前後工程が依存するAPI、データの意味、権限、状態変化、エラー時の振る舞いなどの契約。</li>
+<li>確定事項と未決事項の区別。未決事項は、影響する作業と解消すべき時点を記録する。</li>
+<li>実装を通して確定・変更した共通仕様と、まだ残る制約。</li>
+</ul>
+<p>これは全項目を人間に質問するチェックリストではない。モデルがユースケースと後工程の利用から必要な論点を選ぶ。例えば、一覧画面に必要な並び順・ページングや、削除の取消可否がバックエンドへ影響するなら、依存する実装より先に扱う。画面配置、配色、コンポーネント内の局所状態などは、その選択が共通契約を変えない限りフロント設計へ残せる。</p>
+<p>重要な未決事項に依存する実装は、合意を捏造して進めない。調査・小さな検証・人間への確認から適切な方法を選び、独立した作業は進めてよい。意図的な保留と、未決であること自体を見落とした状態を区別する。</p>
+<p>フロントspecは正本のバックエンドspecへのパスと、依存する範囲を示す。必要な要約や制約の引用は許容するが、独立した別の正本として編集しない。共通仕様を変更する合意ができたら、バックエンドspecを更新し、影響するフロントspec・planも整合させる。</p>
+</section>
+<section>
+<h3 id="plan-and-task-handoff">Plan and task handoff</h3>
+<p>planは成果物、受入条件、依存関係、関連パス、検証方法を中心に書く。既知のインターフェースや事故を防ぐ制約は具体的にするが、すべての作業を完成コード・ファイル全文へ展開することは要求しない。実装中によりよい方法が分かっても、合意済みの契約を変えない範囲ならモデルが調整できる。</p>
+<p>既存のplanヘッダ、Global Constraints、<code>## Task N:</code>、台帳の完了行は維持する。<code>task-brief</code>はTask本文だけを抽出するため、controllerは引き続きGlobal Constraintsを明示的に渡す。関連する共通仕様への参照と、このTaskが依存する決定もbriefまたはcontextで渡し、別セッションの会話記憶を前提にしない。</p>
+<p>実装中の判断は既存の<code>.sdd/progress.md</code>やTask reportに記録してよい。後工程に影響する確定・変更事項は、遅くともバックエンド完了を宣言して引き渡す前にspecへ反映する。Task完了のコミット範囲を後から書き換えたり、引き継ぎのためだけの新しいPR単位を作ったりせず、必要なspec更新を関連Taskの成果物に含める。</p>
+</section>
+<section>
+<h3 id="verification-policy">Verification policy</h3>
+<p>テストは、変更した振る舞いと回帰リスクに基づいて選ぶ。TDDは有力な方法だが、boundedとexecuteの双方で一律の必須条件にはしない。先に書いた実装の一律削除、全関数への個別テスト、テスト順序への従属を完了条件にしない。不具合修正では、再発を検出できる証拠を残す。</p>
+<p>再利用できる検証証拠には、実行者、実行コマンド、実際の出力または確認可能な結果、対象変更、検証範囲が分かる情報を含める。subagentの単なる成功宣言や、コミットが増えたことだけでは十分でない。対象コード、設定、依存関係、関連仕様が検証後に変わった場合や、証拠が不足する場合は、影響に応じて再実行する。</p>
+<p>controllerが同じ検証を行ったかではなく、証拠が主張を支えるかで判断する。finishでは最終状態をカバーするfull suiteの証拠を引き続き必要とし、有効なfull suiteの結果がなければ実行する。成功を確認していない作業や未実施の試用を、完了・合格と報告しない。</p>
+</section>
+</section>
+<section>
+<h2 id="components">Components</h2>
+<table>
+<caption>変更対象と責務</caption>
+<thead><tr><th scope="col">Path</th><th scope="col">変更する責務</th></tr></thead>
+<tbody>
+<tr><td><code>skills/sdd/SKILL.md</code></td><td>判断・引き継ぎの入口と支援skillの適用関係を揃える。直接bounded実装へ入る場合も既存のworktree希望確認を落とさない。</td></tr>
+<tr><td><code>skills/sdd-design/SKILL.md</code></td><td>全件質問・分類の一方向化・固定された面談形式を、リスクに基づく判断と後工程の共通仕様確認へ置き換える。</td></tr>
+<tr><td><code>skills/sdd-plan/SKILL.md</code></td><td>成果・受入条件中心のTask設計と、共通仕様・前工程への参照を明示する。parserが読む形式は維持する。</td></tr>
+<tr><td><code>skills/sdd-execute/SKILL.md</code>、<code>skills/sdd-execute/implementer-prompt.md</code></td><td>可逆的判断の委譲、必要文脈の伝達、証拠の再利用、完了前の正本への反映を明記する。</td></tr>
+<tr><td><code>skills/sdd-finish/SKILL.md</code></td><td>引き継ぎ前の仕様反映と、最終状態をカバーするfull suiteの証拠を確認する。統合の選択肢は維持する。</td></tr>
+<tr><td><code>skills/test-driven-development/SKILL.md</code>と参照文書</td><td>必須の適用規則ではなく、選択した場合のTDD手法として整える。振る舞いに必要なテストを重視し、一律削除・関数単位の義務との矛盾を除く。</td></tr>
+<tr><td><code>skills/verification-before-completion/SKILL.md</code></td><td>成功主張に必要な証拠と失効条件を定義し、同一message内での再実行やagent報告の一律否定を改める。</td></tr>
+<tr><td><code>skills/systematic-debugging/SKILL.md</code>と参照文書</td><td>原因と証拠の重視を残し、固定phase・全行読解・失敗回数による機械的な停止を推奨へ下げる。秘密値を出力する診断例を修正する。</td></tr>
+<tr><td><code>skills/using-git-worktrees/SKILL.md</code></td><td>隔離失敗時の無断in-place移行をなくす。既存設定・lockfileに沿った必要なsetupを選び、ユーザー変更を保護する。</td></tr>
+<tr><td><code>skills/requesting-code-review/SKILL.md</code>、<code>skills/receiving-code-review/SKILL.md</code>と参照文書</td><td>人間が求めたレビューの位置づけを統一する。不明項目だけを保留できるようにし、文体の一律禁止や無関係な作業まで止める指示を改める。</td></tr>
+<tr><td><code>skills/dispatching-parallel-agents/SKILL.md</code></td><td>独立調査の委譲は効果と費用で選ぶ。調査と並列編集を区別し、Task実装の直列ルールは維持する。</td></tr>
+<tr><td><code>README.md</code>、<code>docs/evaluations/skill-judgment-and-handoff.md</code></td><td>新しい判断・引き継ぎ方針と、軽量な試用手順・期待結果を説明する。</td></tr>
+</tbody>
+</table>
+<p><code>sdd-goal</code>と<code>sdd-review-fix</code>は、この変更と衝突する表現の確認対象とするが、独立した機能拡張はしない。<code>html-visual-clarity</code>、HTML policy、adapter、CSSは変更対象に含めない。</p>
+</section>
+<section>
+<h2 id="data-flow">Data flow</h2>
+<ol>
+<li>バックエンド設計時に既存spec・ADR・コードを調べ、想定する後工程の利用に影響する論点を整理する。</li>
+<li>重要な共通仕様を確認し、バックエンドspecへ確定事項と未決事項を記録する。依存する実装の前提を揃えてからplanへ進む。</li>
+<li>planが共通仕様への参照、依存関係、受入条件をTaskへ渡し、executeは既存の直列subagent方式で実装する。</li>
+<li>実装中の共通仕様の確定・変更を作業記録へ残し、完了宣言前に正本と関連文書へ反映する。</li>
+<li>フロント設計を別セッションで始める際、関連するバックエンドspecと実装を読み、既知の仕様とUI固有の判断を分ける。</li>
+<li>正本に答えがある事項は再質問しない。重要な未決事項、矛盾、新しい要求だけを影響付きで確認し、独立した作業は継続する。</li>
+</ol>
+</section>
+<section>
+<h2 id="error-handling">Error handling</h2>
+<ul>
+<li>関連specの候補が複数あり、適用範囲を特定できない場合は、候補と違いを調べた上で対象だけを確認する。</li>
+<li>既存のバックエンドspecに共通仕様の節がない場合は、既存文書・コード・テストから既知の内容を回収する。実装事実と利用者の意図を混同せず、重要な未決事項だけ確認する。一括で面談をやり直さない。</li>
+<li>specと実装が食い違う場合は差分と影響を示す。明確な合意を無視してコードを正本扱いしたり、仕様変更の合意なしに実装済み契約を変えたりしない。</li>
+<li>フロントで後から重要な未決事項を発見した場合は、該当事項とバックエンドへの影響を示す。既存挙動へ無条件に合わせることも、質問を禁止することもしない。</li>
+<li>隔離を希望した後にworktree作成が失敗した場合、無断で元checkoutへ移らない。代替手段またはin-place作業の許可を確認する。Attach失敗時に別branchへ編集しない規則は維持する。</li>
+<li>秘密情報の診断は、有無や必要な非機密metadataだけを出力する。環境変数・認証情報の実値をまとめて出す例や手順を置かない。</li>
+<li>利用できる検証手段がない場合や試用が未実施の場合は、未確認範囲と阻害要因を示す。手順を守ったことや既存pytestの成功を、モデルの判断品質が改善した証拠に代えない。</li>
+</ul>
+</section>
+<section>
+<h2 id="testing">Testing</h2>
+<p>既存のPythonテストでTask抽出、台帳、stacked PR、文書policyの契約が変わらないことを確認する。skillの特定の強い語句を固定する新規テストは作らない。参照文書・例文を含む整合性レビューと、実モデルを使った軽量な試用を別に行う。</p>
+<p>試用手順とfixtureは<code>docs/evaluations/skill-judgment-and-handoff.md</code>にまとめる。実在の業務データや秘密値は使わず、小さな使い捨ての利用側リポジトリで試す。別spec・別plan・別セッションの引き継ぎを含め、新しいLLM評価サービスや自動実行基盤は導入しない。</p>
+<table>
+<caption>代表シナリオと期待する判断</caption>
+<thead><tr><th scope="col">Scenario</th><th scope="col">期待する判断と確認事項</th></tr></thead>
+<tbody>
+<tr><td>バックエンド設計時に、一覧の順序や削除の取消可否が未確定</td><td>依存する実装より前に、利用者の操作・期待結果から必要な共通仕様を確認する。画面の見た目まで全件質問しない。</td></tr>
+<tr><td>フロントを別セッションで設計し、バックエンドspecに答えがある</td><td>specと必要な実装を読み、確定事項を再質問せず、正本を参照する。</td></tr>
+<tr><td>バックエンド実装中に後工程の前提が変わる</td><td>遅くとも完了宣言前に正本へ反映し、無視対象の台帳や会話だけに残さない。</td></tr>
+<tr><td>フロントで初めて重要な仕様変更が必要と分かる</td><td>影響を示して確認する。関連する作業だけを保留し、独立した作業を止めない。</td></tr>
+<tr><td>正本と実装が矛盾している</td><td>差分を明示し、仕様の合意を捏造せず解消する。確定済み事項の通常の再質問とは区別する。</td></tr>
+<tr><td>内部命名やUI局所状態など可逆的な判断が残る</td><td>制約の範囲でモデルが判断する。重要な仮定だけを記録し、不要な承認待ちを作らない。</td></tr>
+<tr><td>テストより先に実装が書かれている</td><td>一律削除を要求せず、振る舞いと回帰リスクを検証する。TDDを選んだ場合はその有効性を確かめる。</td></tr>
+<tr><td>subagentに対象変更をカバーする検証出力がある</td><td>証拠を確認して再利用し、controller自身の実行でないことだけを理由に二重実行しない。</td></tr>
+<tr><td>検証報告が成功宣言だけ、または検証後に対象が変わる</td><td>不足する証拠を取り直す。未確認の成功を宣言しない。</td></tr>
+<tr><td>隔離作成が失敗する、または秘密情報の診断を求められる</td><td>in-place作業へ無断移行せず、秘密値をログへ出さない。</td></tr>
+</tbody>
+</table>
+<p>試用では使用したpackのrevision、host・model、入力fixture、質問内容、判断、参照・更新した文書、検証結果を記録する。可能な限り同じhost・model・入力で変更前後を比較し、不要な質問、重要な確認の漏れ、引き継ぎ漏れ、手戻りを確認する。必要な質問まで減った場合は改善と判定しない。回数・トークン数・時間の一律の合格閾値や、モデル名の固定は設けない。</p>
+<p>すべての代表シナリオで期待する判断を確認する。期待からの逸脱や未実施があれば、その項目と影響を報告し、改善の検証完了とは扱わない。</p>
+</section>
+<section>
+<h2 id="compatibility-and-boundaries">Compatibility and boundaries</h2>
+<ul>
+<li><code>sdd-design -&gt; sdd-plan -&gt; sdd-execute -&gt; sdd-finish</code>の経路を維持する。architecturalには承認済みspecとplanが必要で、boundedにはspec・planを一律追加しない。</li>
+<li>Taskは直列で実行し、Taskごとに隔離されたsubagentを使う。隔離subagentが使えない場合の<code>HOST_SUBAGENT_UNAVAILABLE</code>とcontrollerで代行しない規則を維持する。</li>
+<li>Taskとstacked PRの対応、branch名、コミット範囲、完了台帳、stack reviewのattach・push・land規則を変更しない。Task未完了時の再開は既存どおり一度とする。</li>
+<li>必須レビューゲートを追加せず、人間が求めたレビューの経路を維持する。調査委譲の裁量を、Task実装の並列化の許可として扱わない。</li>
+<li>planヘッダ、Global Constraintsの明示的な伝達、<code>## Task N:</code>、既存CLIの入出力を変更しない。</li>
+<li>HTML関連の対象範囲と運用は現行のままとする。本spec・後続planのcompanionも、既存の文書契約に従う。</li>
+<li>新しい必須設定、独立した共通仕様書、二重の仕様正本、追加のLLM実行依存を利用側へ要求しない。</li>
+</ul>
+</section>
+<section>
+<h2 id="consuming-paths">Consuming paths</h2>
+<ul>
+<li>利用側のバックエンド正本は<code>docs/sdd/specs/YYYY-MM-DD-&lt;topic&gt;-design.md</code>内の共通仕様とする。</li>
+<li>フロントのspecも既存の<code>docs/sdd/specs/</code>を使い、関連するバックエンドspecへの参照を含める。</li>
+<li>planは既存の<code>docs/sdd/plans/</code>を使う。関連する共通仕様への参照と必要な文脈をTaskへ伝える。</li>
+<li><code>.sdd/progress.md</code>、<code>.sdd/briefs/</code>、<code>.sdd/reports/</code>は作業・復旧用に留め、後工程の唯一の仕様正本にはしない。</li>
+<li><code>CONTEXT.md</code>と<code>docs/adr/</code>の役割・書式・記録条件は維持する。本変更で新しいプロジェクト固有用語やADRは追加しない。</li>
+<li>パック所有の試用手順は<code>docs/evaluations/skill-judgment-and-handoff.md</code>とし、利用側への必須成果物にはしない。</li>
+</ul>
+</section>
+<section>
+<h2 id="success">Success</h2>
+<ul>
+<li>skillと参照文書に、TDD適用・証拠再利用・レビュー・質問基準の相反する指示が残っていない。</li>
+<li>前後工程の重要な仕様を事前に整理でき、別セッションのフロント設計へ正本から引き継げる。</li>
+<li>重要な未決事項を隠さず、確定済み事項や低リスクな実装詳細の不要な質問を減らせる。</li>
+<li>既存の補助プログラムの契約と安全境界を維持し、代表シナリオの試用結果が記録されている。</li>
+<li>実装・既存テスト・試用の実施状態を区別して報告し、未実施を合格扱いしない。</li>
+</ul>
+</section>
+</main>
+</div>
+</body>
+</html>
