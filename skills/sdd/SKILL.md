@@ -14,13 +14,14 @@ Format templates live at `<pack-root>/docs/formats/`. Scripts live at `<pack-roo
 | Situation | Skill |
 |---|---|
 | New idea, fuzzy words, a design grill, or any architectural change without a spec | sdd-design |
+| Backend change whose behavior a later phase will consume | sdd-design; record the shared contract in the backend spec |
 | Approved architectural spec, no plan yet | sdd-plan |
 | Plan exists, implement it | sdd-execute |
 | Keep working until a condition holds (/goal) | sdd-goal |
 | Implementation green, integrate | sdd-finish |
 | GitHub review on a stacked PR (`sdd-stack/task-N`) | sdd-review-fix |
 | User asks to "just implement" something architectural | sdd-design first |
-| Bounded feature, bugfix, or refactor (no architectural spec) | test-driven-development |
+| Bounded feature, bugfix, or refactor (no architectural spec) | implement in this session; use test-driven-development when it fits |
 | Bug, test failure, or unexpected behavior | systematic-debugging |
 | About to claim the branch is complete (sdd-finish) | verification-before-completion |
 | Isolated workspace / git worktree (after the human said yes) | using-git-worktrees isolate |
@@ -31,7 +32,35 @@ Format templates live at `<pack-root>/docs/formats/`. Scripts live at `<pack-roo
 
 Do not run sdd-execute without a plan file. Do not run architectural implementation without a spec file.
 
-Before controller-session implementation (sdd-execute Task 1, or test-driven-development that is not an execute implementer), the matching skill asks once whether to create a worktree. Do not ask from an implementer subagent.
+## Judgment
+
+Confirm with the human only for unagreed user-facing behavior, permissions and
+safety, destructive operations, external side effects beyond an existing
+authorization, and costly or irreversible changes.
+
+Investigate repository facts before asking. Within an agreed spec, goal, and
+constraints, make reversible implementation decisions yourself: internal
+structure, naming, and the order of investigation, implementation, and tests.
+Record only assumptions that affect later work.
+
+A supporting skill supplies a method. It does not override the agreed spec, the
+constraints, or the calling skill's execution contract, and it does not add its
+own mandatory TDD rule, review gate, or global stop condition. Safety boundaries
+and the evidence needed for a success claim stay in force on every path.
+
+## Shared specifications
+
+When a backend spec will be consumed by a later phase, sdd-design records the
+shared contract in that spec. A later phase reads the canonical spec and the
+implementation it names instead of re-asking settled facts. A frontend spec
+names the canonical backend spec and the dependent scope. Do not create a
+separate shared-spec document.
+
+## Implementation entry
+
+Before controller-session implementation (sdd-execute Task 1, or a bounded change implemented without an execute implementer), ask once whether to create a worktree. This applies whether or not the bounded change uses test-driven-development. Do not ask from an implementer subagent.
+
+TDD is a strong way to protect behavior, not a gate. Bounded work may use it or another verification approach justified by the behavior and regression risk. sdd-execute applies the same standard.
 
 Do not invoke the Superpowers plugin, grill-with-docs, grilling, or domain-modeling. Supporting skills in this pack are the Superpowers copies (TDD, debugging, verification, worktrees, review). Pipeline skills stay sdd-* — do not use brainstorming, writing-plans, executing-plans, subagent-driven-development, or finishing-a-development-branch.
 

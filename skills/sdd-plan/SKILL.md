@@ -41,7 +41,26 @@ Example: `## Task 1: Render docs script`
 
 Steps inside a task are not PR units. Task N is the stacked-PR boundary.
 
-Assume the implementer is skilled but does not know this repo. No TBD, no "similar to Task N", no steps without the actual commands or file contents.
+Assume the implementer is skilled but does not know this repo. No TBD, no "similar to Task N".
+
+## Task content
+
+Each task must give the implementer:
+
+- the deliverable and observable acceptance criteria;
+- dependencies on earlier tasks, specs, or decisions;
+- relevant paths and the existing interfaces or constraints that prevent a known failure;
+- how to verify the result and what evidence to report;
+- the governing spec path and the shared-contract parts the task must honor.
+
+Include concrete commands or short snippets when they prevent a known failure or
+ambiguity. Do not require the complete contents of every file or a fully expanded
+step list. A skilled implementer may choose a better method that stays inside the
+agreed contract and acceptance criteria.
+
+Reference the canonical spec in the task or in the context passed with the brief;
+do not rely on conversation memory. When the task consumes a shared contract
+from an earlier phase, name the spec and the applicable sections.
 
 ## Agent-authored HTML and commit
 
