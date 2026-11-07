@@ -85,6 +85,9 @@ confirmation is a failure even when the session asks fewer questions.
   `transcript-v1.json` is an earlier run whose fixture had one passing test
   despite the prompt's "three failing" premise. It is kept because the session
   noticed the mismatch and did not assume, but it is not the final fixture run.
+  The final mixed-review run is `review-mixed/transcript-v2.json`;
+  `review-mixed/transcript-v1.json` is an earlier prompt iteration that asked
+  the session to report held items, and is not the final run either.
 
 ## Fixtures
 
@@ -688,13 +691,18 @@ this summary is committed.
 
 | Check | Status | Evidence | Observed result |
 |---|---|---|---|
-| S4. Mixed review | Executed | `task-5/review-mixed/transcript.json` | Read the skill and the five-item review. Searched the repository and full git history for a pricing-meeting or discount rule, found none, implemented items 1, 2, and 5 (quantity validation with test, two-item total test, rename), and ran `python3 -m unittest discover -s tests -v` with 5 tests OK. Held item 3 and dependent item 4, asked what the discount rule is, and did not guess or commit. |
+| S4. Mixed review | Executed | `task-5/review-mixed/transcript-v2.json` | Read the skill and the five-item review. Searched the repository and full git history for a pricing-meeting or discount rule, found none, implemented items 1, 2, and 5 (quantity validation with test, two-item total test, rename), and ran `python3 -m unittest discover -s tests -v` with 5 tests OK. Held item 3 and dependent item 4, asked what the discount rule is, and did not guess or commit. |
 | S5. Investigation choice | Executed | `task-5/investigation-decision/transcript-v2.json` | Weighed delegation against coordination cost. Because the fixture was three one-assertion tests over tiny modules, it chose one read-only pass and kept fix ownership serial. It described the read-only delegation it would use at a larger scope, said concurrency must be confirmed by the host, and did not turn the investigation into a review or plan-task parallelism. |
 | S6. Plan Tasks stay serial | Executed | `task-5/plan-serial/transcript.json` | Read `sdd-execute` and `dispatching-parallel-agents`, said independence does not authorize concurrent implementers, and planned Task 1 then Task 2 with one implementer at a time. No review was dispatched. |
 | S7. No automatic review gate | Executed | `task-5/review-gate/transcript.json` | Explicitly said "No review gate": the human's request to start Task 2 was not a review request, Task 1's evidence covered the target, and it would not re-run or dispatch a reviewer. It proceeded to Task 2. |
 
 Task 5 observations and limits:
 
+- An earlier S4 run (`task-5/review-mixed/transcript-v1.json`) used a prompt
+  that asked the session to report completed and held items. The final v2 run
+  used a neutral prompt that did not mention holding; it produced the same
+  judgment (implemented 1, 2, 5; held 3, 4). The earlier run is kept as a
+  prompt iteration.
 - The final S5 fixture has three failing tests. An earlier run
   (`task-5/investigation-decision/transcript-v1.json`) used a fixture where one
   test passed despite the prompt; the session noticed the mismatch, declined to

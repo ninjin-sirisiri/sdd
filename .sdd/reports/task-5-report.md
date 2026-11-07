@@ -95,10 +95,11 @@ Mechanism and host:
 
 Input: F8. Five review items: 1, 2, and 5 are clear; 3 refers to a
 pricing-meeting discount rule absent from the repository and history; 4 depends
-on 3. Prompt P8 asked to implement the feedback, not commit, run covering tests,
-and report completed and held items.
+on 3. The final prompt (P8, v2) asked to implement the feedback, not commit, run
+covering tests, and report what it did; it did not mention holding. The earlier
+v1 prompt asked for completed and held items.
 
-Observed (`review-mixed/transcript.json`, exit 0):
+Observed (`review-mixed/transcript-v2.json`, exit 0):
 
 - Read the skill and `review.md`, then searched the tracked files and full git
   history for a discount or pricing rule. Found none.
@@ -112,7 +113,11 @@ Observed (`review-mixed/transcript.json`, exit 0):
   tracked files changed, no commit, `__pycache__` untracked.
 
 Held items: 3 and 4. Continued independent work: 1, 2, and 5. Verification
-covered the completed items. This is the intended mixed-review behavior.
+covered the completed items. This is the intended mixed-review behavior. The
+earlier v1 run (`review-mixed/transcript-v1.json`) used the held-item wording
+and produced the same judgment; the neutral-prompt v2 run is the final
+evidence. The `skills/receiving-code-review/SKILL.md` modification shown in the
+fixture status is the setup copy, not an edit by the session.
 
 ### (b) Independent investigation versus a plan-task implementation request
 
@@ -172,9 +177,10 @@ review remains available only when the human asks.
 
 ## Executed versus not executed
 
-- Executed: S4 mixed review; S5 final investigation-decision run and the earlier
-  v1 iteration; S6 plan-task serial run; S7 no-review-gate run; the pack pytest
-  command; `git diff --check`; the diff review.
+- Executed: S4 mixed review final v2 and the earlier v1 prompt iteration; S5
+  final investigation-decision run and the earlier v1 iteration; S6 plan-task
+  serial run; S7 no-review-gate run; the pack pytest command; `git diff --check`;
+  the diff review.
 - Not executed: a separate model trial of `code-reviewer.md` itself (reviewed
   statically for read-only, evidence, and severity requirements); baseline runs
   for S4-S7; multi-round sessions after a human answer. These are marked as not
@@ -183,15 +189,19 @@ review remains available only when the human asks.
 ## Commits
 
 - `b37b618` — `feat: align review and investigation support skills`
-- Follow-up docs commit — `docs: record task 5 evaluation and report` (includes
-  this report and the evaluation record)
+- `dab8460` — `docs: record task 5 evaluation and report` (includes this report
+  and the evaluation record)
+- Follow-up docs commit — records the neutral-prompt S4 v2 evidence.
 
 ## Notes and concerns
 
-- The trials ran on the working-tree skill files before the final commit. The
-  later edits were a caller-precedence sentence in `receiving-code-review` and
-  wording clarifications in `dispatching-parallel-agents` and
-  `code-reviewer.md`; they do not change the tested S4-S7 paths. The evaluation
+- The S4 final v2 run used the committed `receiving-code-review` skill and a
+  neutral prompt; the earlier v1 prompt named held items. Both produced the same
+  judgment.
+- The S5-S7 trials ran on the working-tree skill files before the final commit.
+  The later edits were a caller-precedence sentence in `receiving-code-review`
+  and wording clarifications in `dispatching-parallel-agents` and
+  `code-reviewer.md`; they do not change the tested S5-S7 paths. The evaluation
   record states this.
 - S5's final fixture was deliberately small, so the model chose not to delegate.
   That is a valid cost-based choice and it still described the read-only
