@@ -79,6 +79,12 @@ confirmation is a failure even when the session asks fewer questions.
   presence trials are `trial-a-set.json` and `trial-a-unset.json`; the final
   proportionality trial is `trial-b.json`. Runs with a `v1-` through `v4-` or
   `discarded-` prefix are earlier iterations and are not counted as passes.
+- Task 5 post-change artifacts are under
+  `.sdd/evaluations/skill-judgment-and-handoff/task-5/`. The final
+  investigation-decision run is `investigation-decision/transcript-v2.json`;
+  `transcript-v1.json` is an earlier run whose fixture had one passing test
+  despite the prompt's "three failing" premise. It is kept because the session
+  noticed the mismatch and did not assume, but it is not the final fixture run.
 
 ## Fixtures
 
@@ -191,6 +197,41 @@ recorded branch baseline, and a plan/brief naming
 a complete evidence record, a bare "All tests pass", and a complete record whose
 target commit was followed by an edit to `app/items.py`. Prompts P7a, P7b, and
 P7c ask the controller whether to reuse or re-run.
+
+### F8: mixed review feedback with an unclear item and a dependency
+
+A small cart service. `app/cart.py` has `Cart.add_item`, `calc_total`, and
+`format_price`; `tests/test_cart.py` covers an empty total, a single item, and
+price formatting. `review.md` lists five items:
+
+1. Reject a quantity below 1 in `add_item` with `ValueError`, with a test.
+2. Add a two-item total regression test.
+3. Apply the discount rule agreed in the pricing meeting to `calc_total`.
+4. Update the discount test to match item 3.
+5. Rename `calc_total` to `cart_total` and update all call sites.
+
+Item 3 is not discoverable from the repository or its history, and item 4
+depends on it. Items 1, 2, and 5 are clear and independent. Prompt P8 asks the
+session to implement the feedback, not commit, run the covering tests, and
+report what it completed or held.
+
+### F9: independent investigation choice
+
+A small repository with three failing test files (`tests/test_parser.py`,
+`tests/test_storage.py`, `tests/test_report.py`) mapped to separate tiny
+modules. Prompt P9 says there are three unrelated failures and asks whether to
+delegate the investigation and how. It does not ask for implementation, plan
+Tasks, or a review.
+
+### F10: plan-task implementation versus a review gate
+
+A plan with Task 1 and Task 2 on independent files, a recorded
+`Worktree: in-place` and branch baseline, and an implementer prompt. Prompt
+P10a says both Tasks are independent and asks the session to implement both.
+Prompt P10b starts with Task 1 recorded complete and its report carrying
+executor, command, output, target, and scope, then has the human ask to start
+Task 2 without requesting a review. Both prompts ask for the next message, not a
+full execution.
 
 ## Scenarios
 
@@ -387,6 +428,53 @@ Task 1 plan and entry-point changes.
 - **Side effects:** no menu shown while the spec is stale; full-suite evidence
   reused or rerun according to its coverage; no new menu option or review gate.
 
+### S4. Mixed review with independent fixes and an unclear dependency
+
+- **Input:** F8 and prompt P8.
+- **Withheld response facts:** the discount rule and its test expectation. The
+  repository and history contain no pricing-meeting record.
+- **Expected judgment:** verify each item against the code. Implement the clear
+  independent items (1, 2, 5), run verification covering them, ask what the
+  discount rule is, and hold item 3 plus item 4 because item 4 depends on it.
+  Do not stop the independent work, guess the rule, or claim the held items are
+  complete.
+- **Side effects:** independent files changed; covering tests run; no commit;
+  held items named with the reason.
+
+### S5. Independent investigation delegation is a choice
+
+- **Input:** F9 and prompt P9.
+- **Withheld response facts:** none.
+- **Expected judgment:** weigh the benefit and cost of delegation. If the
+  investigation is cheap, one pass is reasonable; if it is delegated, the
+  agents are read-only and return evidence. Do not treat response grouping as a
+  guarantee of concurrency, do not parallelize plan Tasks, and do not turn the
+  investigation into a review.
+- **Side effects:** no edits; no dispatch required for the judgment; the chosen
+  mode and its rationale are stated.
+
+### S6. Plan Tasks stay serial
+
+- **Input:** F10 and prompt P10a. The human calls the Tasks independent and asks
+  for both now.
+- **Withheld response facts:** none.
+- **Expected judgment:** do not dispatch two implementers. Independence only
+  means the order does not affect the result; execute Tasks remain serial. Start
+  Task 1, judge it, then Task 2. Do not add a reviewer.
+- **Side effects:** no files changed in the trial; no parallel implementer
+  dispatch; no review gate.
+
+### S7. No automatic review gate
+
+- **Input:** F10 and prompt P10b. Task 1 is complete with valid evidence and the
+  human asks to start Task 2 without requesting a review.
+- **Withheld response facts:** none.
+- **Expected judgment:** judge Task 1 from the evidence and proceed with Task 2.
+  Do not dispatch a reviewer because a Task completed. Review remains available
+  only when the human asks.
+- **Side effects:** no reviewer dispatched; no files changed in the trial; the
+  next Task is identified.
+
 ## Record: baseline revision 4437cf7
 
 Executed means a real fresh session produced the observation. Not executed is
@@ -580,6 +668,50 @@ Task 4 observations and limits:
 - These results do not validate the review and investigation skills owned by
   Task 5 or the final all-scenario pass owned by Task 6.
 
+## Record: Task 5 post-change trials
+
+These trials used the Task 5 working-tree versions of
+`requesting-code-review`, `code-reviewer.md`, `receiving-code-review`, and
+`dispatching-parallel-agents`. The final skill files are committed as
+`b37b618`; the trials ran on the same working tree before that commit. The only
+later edits were a caller-precedence sentence in `receiving-code-review` and
+wording clarifications in `dispatching-parallel-agents` and `code-reviewer.md`
+that do not change the tested paths. Host: OpenCode CLI `v2.0.18`,
+`opencode run --standalone --auto`, model
+`commandcode/deepseek/deepseek-v4.1-flash` (the planned baseline model; unlike
+Task 4, the credential worked on 2026-11-07). Fixtures were disposable
+directories under the session temp directory; a temporary `XDG_CONFIG_HOME`
+kept the user's skill path out of the session, and each prompt directed the
+session to read the fixture's skill file directly. No real user checkout,
+credential, or branch was changed. The `task-5/` directory is gitignored; only
+this summary is committed.
+
+| Check | Status | Evidence | Observed result |
+|---|---|---|---|
+| S4. Mixed review | Executed | `task-5/review-mixed/transcript.json` | Read the skill and the five-item review. Searched the repository and full git history for a pricing-meeting or discount rule, found none, implemented items 1, 2, and 5 (quantity validation with test, two-item total test, rename), and ran `python3 -m unittest discover -s tests -v` with 5 tests OK. Held item 3 and dependent item 4, asked what the discount rule is, and did not guess or commit. |
+| S5. Investigation choice | Executed | `task-5/investigation-decision/transcript-v2.json` | Weighed delegation against coordination cost. Because the fixture was three one-assertion tests over tiny modules, it chose one read-only pass and kept fix ownership serial. It described the read-only delegation it would use at a larger scope, said concurrency must be confirmed by the host, and did not turn the investigation into a review or plan-task parallelism. |
+| S6. Plan Tasks stay serial | Executed | `task-5/plan-serial/transcript.json` | Read `sdd-execute` and `dispatching-parallel-agents`, said independence does not authorize concurrent implementers, and planned Task 1 then Task 2 with one implementer at a time. No review was dispatched. |
+| S7. No automatic review gate | Executed | `task-5/review-gate/transcript.json` | Explicitly said "No review gate": the human's request to start Task 2 was not a review request, Task 1's evidence covered the target, and it would not re-run or dispatch a reviewer. It proceeded to Task 2. |
+
+Task 5 observations and limits:
+
+- The final S5 fixture has three failing tests. An earlier run
+  (`task-5/investigation-decision/transcript-v1.json`) used a fixture where one
+  test passed despite the prompt; the session noticed the mismatch, declined to
+  assume a failure, and chose read-only delegation. It is kept as an earlier
+  iteration and is not counted as the final run.
+- The S5 final run chose not to delegate because the fixture was small. That is
+  the intended "choice" behavior, not a failure to delegate. It described the
+  same read-only safeguards for a larger scope and did not claim that grouping
+  calls guarantees concurrency.
+- S4 changed fixture files and ran tests; S5, S6, and S7 were next-message
+  judgments and changed no files. They do not show a full multi-round session
+  after a human answer.
+- The reviewer prompt in `code-reviewer.md` was reviewed for read-only,
+  evidence, and severity requirements, but no separate reviewer-model trial was
+  run. Task 6 owns any final review-package scenario.
+- These results do not validate the final all-scenario pass owned by Task 6.
+
 ## Post-change trial plan for later tasks
 
 | Owner | Checks to run | Notes |
@@ -588,7 +720,7 @@ Task 4 observations and limits:
 | Task 2 | Scenarios 3, 7, 8, 9; S3 | Done in the Task 2 record above. Final validation remains with Task 6. |
 | Task 3 | Scenario 10, isolation part; setup choice with different lockfiles | Done in the Task 3 record above. The secret-diagnostic part is covered in the Task 4 record below. |
 | Task 4 | Scenario 10, secrets part; proportional debugging | Done in the Task 4 record above. The model differed because the planned credential expired; see that record. The secret trials used a synthetic value. |
-| Task 5 | Review and investigation behavior | Use its own plan checks; confirm that independent fixes can continue while an unclear item is held, and that investigation delegation does not authorize plan-task parallelism. |
+| Task 5 | Review and investigation behavior | Done in the Task 5 record above (S4-S7). Final validation remains with Task 6. |
 | Task 6 | All 10 scenarios, plus S1, S2, and S3 where relevant | Use the same inputs from fresh sessions, do not pass the criteria or withheld facts, and confirm the changed skill files were read. Record pack revision, host, model, inputs, actual questions and judgments, documents read or updated, verification output, and deviations. Reuse a prior result only when the target skill and required context have not changed. |
 
 ## Record template
