@@ -14,6 +14,7 @@ Format templates live at `<pack-root>/docs/formats/`. Scripts live at `<pack-roo
 | Situation | Skill |
 |---|---|
 | New idea, fuzzy words, a design grill, or any architectural change without a spec | sdd-design |
+| One goal split into multiple specs, including dependent phases | sdd-design; save and approve a Spec roadmap before individual design |
 | Backend change whose behavior a later phase will consume | sdd-design; record the shared contract in the backend spec |
 | Approved architectural spec, no plan yet | sdd-plan |
 | Plan exists, implement it | sdd-execute |
@@ -49,6 +50,14 @@ own mandatory TDD rule, review gate, or global stop condition. Safety boundaries
 and the evidence needed for a success claim stay in force on every path.
 
 ## Shared specifications
+
+For multi-spec work, sdd-design first saves a lightweight Spec roadmap at
+`docs/sdd/specs/YYYY-MM-DD-<topic>-roadmap.md` with its HTML companion and waits
+for human approval of the split and design order. Later individual designs read
+and reference that roadmap. It coordinates scope, completion criteria,
+dependencies, and contract ownership; it is not an implementation spec or plan,
+and its approval does not approve individual specs. Single-spec and bounded
+work do not gain this extra artifact or approval step.
 
 When a backend spec will be consumed by a later phase, sdd-design records the
 shared contract in that spec. A later phase reads the canonical spec and the

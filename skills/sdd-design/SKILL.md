@@ -16,12 +16,71 @@ judgment that investigation can raise or lower; when unsure, take the heavier
 path. If hidden complexity appears, upgrade and say so. Never downgrade to avoid
 an approval or a required spec.
 
-If the request spans independent subsystems too large for one spec, decompose
-first. Design the first piece. Do not refine a project that must be split.
+If the goal needs multiple specs, decompose first and follow Spec roadmaps before
+designing an individual piece. This includes dependent phases, such as separate
+backend and frontend specs, not only independent subsystems too large for one
+spec. Do not refine a project that must be split as though it were one spec.
 
 ## Explore
 
 Read the consuming repo's CONTEXT.md (or ask which file if CONTEXT-MAP.md exists), docs/adr/, README, related specs, and enough code that (1) the codebase can answer questions instead of the human, and (2) you can contradict the human when their claim and the code disagree. When the change follows an earlier phase or has a later consumer, read the specs, ADRs, implementation, and tests that establish the shared behavior.
+
+## Spec roadmaps
+
+When a goal is split into multiple specs, create or update a Spec roadmap before
+the detailed interview or design of the next individual spec. Reuse an approved
+roadmap when its split and dependencies still apply; starting another spec does
+not by itself require a new roadmap or another roadmap approval. Explore enough
+to justify the boundaries and dependencies, and ask only important open
+questions needed to draft the roadmap without designing every piece upfront.
+If the split becomes clear during an individual interview, pause that design
+and take this step. Single-spec work, bounded changes, and spikes do not require
+a roadmap.
+
+Record:
+
+- the overall goal, completion criteria, and non-goals;
+- each spec's stable label, purpose, scope boundary, and observable completion
+  criteria; distinguish existing spec paths from planned specs not yet written;
+- dependencies and their reasons, the proposed design order, and the next spec
+  to design; distinguish required ordering from a suggested order for independent
+  pieces;
+- which spec owns each cross-spec contract and which specs consume it;
+- important unresolved items, their affected work, and when they must be resolved.
+
+Keep the roadmap lightweight. Do not expand every spec into a detailed design,
+implementation tasks, or a calendar. Shared behavior still belongs to its
+canonical owning spec under Shared specification and later phases; the roadmap
+identifies ownership and dependencies, not a second authority for API or other
+contract details. Do not create placeholder individual spec files.
+
+Write `docs/sdd/specs/YYYY-MM-DD-<topic>-roadmap.md`. It uses the existing spec
+Target category, not a new synchronization category. After the Markdown edit,
+author the adjacent `.html` in a separate native file-edit operation with the
+current source digest, following Target companions. Validate from the consuming
+repository:
+
+```text
+python3 <pack-root>/scripts/html-docs check --paths docs/sdd/specs/YYYY-MM-DD-<topic>-roadmap.md docs/sdd/specs/YYYY-MM-DD-<topic>-roadmap.html
+```
+
+Present the saved roadmap and wait for explicit human approval before starting
+the individual spec's detailed interview or design. A chat-only outline is not
+the saved roadmap. Roadmap approval accepts the split and order, not any
+individual spec, implementation scope, or permission to run sdd-plan or
+sdd-execute. After approval, design the selected spec through the normal
+interview and approval flow; do not automatically design all remaining specs.
+
+At each later spec design, read the existing roadmap and the relevant canonical
+specs, implementation, and tests. Reference the roadmap path and the selected
+scope in the individual spec, and add actual spec paths to the roadmap as they
+become available. Update the roadmap when scope boundaries, dependencies,
+contract ownership, or the next design step change. Re-confirm important
+changes to the agreed split or ordering before dependent design continues;
+link-only updates do not need another approval round. For existing multi-spec
+work without a roadmap, recover it from the settled documents and facts, then
+obtain approval before the next individual design; do not reopen approved specs
+or repeat settled interviews just to backfill it.
 
 ## Interview
 

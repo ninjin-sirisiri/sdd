@@ -9,6 +9,11 @@ Announce: "I'm using sdd-plan."
 
 Do not invoke Superpowers writing-plans. Input is the spec path. Do not start from a chat-only bounded design.
 
+The input must be an approved individual architectural spec. A Spec roadmap,
+even though it lives in `docs/sdd/specs/`, is not that spec and cannot authorize
+an implementation plan. If only a roadmap exists, return to sdd-design for the
+selected individual spec rather than planning the entire roadmap.
+
 ## Header (required, in this order)
 
 ```markdown
@@ -61,6 +66,12 @@ agreed contract and acceptance criteria.
 Reference the canonical spec in the task or in the context passed with the brief;
 do not rely on conversation memory. When the task consumes a shared contract
 from an earlier phase, name the spec and the applicable sections.
+
+When the governing spec references a Spec roadmap, read it for the relevant
+scope and dependencies. Carry dependencies that affect a task into its brief
+or context, with the owning canonical spec references; do not leave them only
+in the plan header or treat roadmap approval as approval of an unresolved
+contract. Plan only the approved individual spec, not the remaining roadmap.
 
 ## Agent-authored HTML and commit
 

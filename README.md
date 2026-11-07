@@ -149,6 +149,27 @@ Confirm with the human only for unagreed user-facing behavior, permissions and s
 
 A supporting skill supplies a method. It does not override the agreed spec, the constraints, or the calling skill's execution contract, and it does not add its own mandatory TDD rule, review gate, or global stop condition.
 
+### One goal, multiple specs
+
+When work needs multiple specs, including separate backend and frontend phases,
+`sdd-design` first saves
+`docs/sdd/specs/YYYY-MM-DD-<topic>-roadmap.md` and its separately authored HTML
+companion, validates the pair, and waits for human approval before detailed
+individual design. The Spec roadmap records the overall goal and completion
+criteria, each spec's scope and completion criteria, dependencies and design
+order, contract ownership, important unresolved items, and the next spec to
+design. It is not a detailed design, implementation plan, or calendar.
+
+After approval, design the selected individual spec through the normal flow.
+Roadmap approval does not approve that spec or authorize implementation. Later
+design sessions read and reference the roadmap, add actual spec paths as they
+become available, and update changed boundaries or dependencies. Important
+changes to the agreed split or ordering need confirmation; adding links does
+not. Shared-contract details remain in their owning canonical spec, not in a
+second shared-spec document. `sdd-plan` accepts an approved individual spec,
+never the roadmap alone. Single-spec work and bounded changes do not require
+a roadmap.
+
 ### Backend shared contract to a separate frontend session
 
 1. In the backend design, identify the contract a later phase will consume and record it in the backend spec: expected user operations and results, the API or data meaning the later phase depends on, permissions, state changes, error behavior, and settled versus undecided items. Ask about shared-contract decisions that block dependent work before implementing against them. For example, list ordering, pagination, and whether a delete can be cancelled or undone belong before the backend work that depends on them.

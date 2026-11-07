@@ -4,6 +4,11 @@ Skill pack for spec-driven design, plans, isolated execution, and stacked PRs.
 
 ## Terms
 
+**Spec roadmap**:
+A cross-spec document that records the overall goal, spec boundaries, completion criteria, dependencies, and design order before individual specs are designed. It coordinates the work without replacing individual specs, their shared contracts, or implementation plans.
+
+_Avoid_: all-spec implementation plan, shared-spec document
+
 **Implementation worktree**:
 The optional isolated git checkout created before execute (or bounded TDD). At most one per plan. Its branch is not a stack branch.
 
