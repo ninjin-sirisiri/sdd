@@ -112,17 +112,27 @@ git worktree add "$path" -b "$BRANCH_NAME"
 cd "$path"
 ```
 
-**Sandbox fallback:** If `git worktree add` fails with a permission error (sandbox denial), tell the user the sandbox blocked worktree creation and you're working in the current directory instead. Then run setup and baseline tests in place.
+**Creation failure:** If `git worktree add` fails — permission, sandbox denial, unusable path — stop. Report the failure and the attempted path. Ask the human to choose an alternative isolation mechanism or explicitly allow work in the current checkout. Do not run setup, tests, or edits in place without that permission. An explicit instruction from the human that already allows in-place work in this session is the only exception; a creation failure is not permission.
 
 ### Step 2: Project Setup
 
-Auto-detect and run appropriate setup:
+Choose setup from the README, lockfiles, and existing configuration, and run
+only what this work needs. Read the README and configuration before running a
+package manager. Do not infer the package manager from one manifest, and do not
+create or modify a lockfile during setup.
 
 ```bash
-# Node.js
-if [ -f package.json ]; then npm install; fi
+# Node.js — the lockfile and README decide the package manager
+if [ -f pnpm-lock.yaml ]; then pnpm install
+elif [ -f yarn.lock ]; then yarn install
+elif [ -f bun.lock ] || [ -f bun.lockb ]; then bun install
+elif [ -f package-lock.json ]; then npm ci
+fi
+# package.json with no lockfile: follow the README's documented setup. Do not
+# run `npm install` just because package.json exists, and do not create a
+# lockfile.
 
-# Rust
+# Rust — build only when the work needs it
 if [ -f Cargo.toml ]; then cargo build; fi
 
 # Python — detect the installer. pyproject.toml alone is not Poetry.
@@ -140,17 +150,23 @@ elif [ -f pyproject.toml ]; then
   echo "pyproject.toml found but the installer is unclear. Ask the human how to install dependencies; do not run poetry/uv/pip automatically."
 fi
 
-# Go
+# Go — download only when the work needs dependencies
 if [ -f go.mod ]; then go mod download; fi
 ```
 
+Skip an install when the dependencies are already present and this work does not
+change them. If the README names a setup this list does not cover, follow the
+README. If two sources disagree about the package manager or installer, ask the
+human.
+
 ### Step 3: Verify Clean Baseline
 
-Run tests to ensure workspace starts clean:
+Run tests to ensure the workspace starts clean. Use the project-appropriate
+command from the README:
 
 ```bash
-# Use project-appropriate command
-npm test / cargo test / pytest / go test ./...
+# For example
+pnpm test / npm test / cargo test / pytest / go test ./...
 ```
 
 **If tests fail:** Report failures, ask whether to proceed or investigate.
@@ -190,7 +206,7 @@ Then run Project Setup. Do not require a green isolate baseline before returning
 
 If `git worktree add` fails because the branch is already checked out, read `git worktree list --porcelain`. If a worktree has `branch refs/heads/sdd-stack/task-N`, continue in that path (step 1 or 2). If that path cannot be used, stop. Do not `git worktree add -b` to dodge the lock.
 
-**Sandbox / permission failure:** If add fails and the current checkout is not the target branch, stop. Tell the human attach failed. Do not work in place. Isolate sandbox fallback does not apply.
+**Creation failure:** If add fails and the current checkout is not the target branch, stop. Tell the human attach failed. Do not work in place.
 
 Do not delete the review worktree.
 
@@ -208,7 +224,8 @@ Review worktree attached at <full-path> on <branch>
 | Isolate, in a submodule | Treat as normal repo (Step 0 guard) |
 | Isolate, native worktree tool available | Use it (Step 1a) |
 | Isolate, no native tool | Git worktree fallback with `-b` (Step 1b) |
-| Isolate, permission error on create | Sandbox fallback, work in place |
+| Isolate, create fails (permission, sandbox, path) | Stop. Ask for another mechanism or explicit in-place permission; do not continue automatically |
+| Isolate, `package.json` without a lockfile | Follow the README; do not default to `npm install` or create a lockfile |
 | Attach | Never `-b`. Never native tools that create a branch |
 | Attach, already on target branch | Stay, setup, do not add another worktree |
 | Attach, `$LOCATION/sdd-stack-task-N` exists for that branch | Reuse it |
@@ -220,7 +237,7 @@ Review worktree attached at <full-path> on <branch>
 | Neither exists | Check instruction file, then default `.worktrees/` |
 | Directory not ignored | Add `$LOCATION` to .gitignore + commit |
 | Tests fail during isolate baseline | Report failures + ask |
-| No package.json/Cargo.toml | Skip dependency install |
+| No lockfile/README setup, or dependencies not needed | Skip dependency install |
 
 ## Common Rationalizations
 
@@ -231,5 +248,7 @@ Review worktree attached at <full-path> on <branch>
 | "The worktree directory is surely ignored already" | Run `git check-ignore`. An unignored worktree directory commits the whole tree into the repo. |
 | "Any directory name works" | Explicit instructions beat an existing project-local directory, which beats the `.worktrees/` default. Attach paths are `$LOCATION/sdd-stack-task-N`. |
 | "The workspace is fresh — baseline tests can wait" | Isolate: a dirty baseline makes every later failure ambiguous. Attach: do not require a green baseline before the review fix; sdd-review-fix tests after the fix. |
-| "Attach failed, I'll edit in this checkout" | If this checkout is not the target stack branch, stop. In-place fallback is isolate-only. |
+| "The sandbox blocked the worktree, so working in place is the only option" | Isolation was requested. Stop and ask for another mechanism or explicit in-place permission. A creation failure is not consent. |
+| "`package.json` means `npm install`" | The lockfile, README, and existing configuration decide the package manager. Do not create or modify a lockfile during setup. |
+| "Attach failed, I'll edit in this checkout" | If this checkout is not the target stack branch, stop. Attach failure never becomes in-place work. |
 | "Already in a worktree, so I must not attach another" | Isolate skips a second isolate worktree. Attach of a different branch is allowed. |

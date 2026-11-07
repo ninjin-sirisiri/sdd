@@ -41,8 +41,11 @@ Which option?
 
 Wait for the human. Do not add extra options. Creating a worktree is optional.
 
-- **Yes:** use using-git-worktrees. They already consented — do not ask again inside that skill. After it reports ready, continue this skill from that worktree. Append `Worktree: created <full-path>` to `.sdd/progress.md` in the checkout you will implement in (create the file if needed). If creation fails and that skill falls back in place, append `Worktree: in-place` instead.
+- **Yes:** use using-git-worktrees. They already consented — do not ask again inside that skill. After it reports ready, continue this skill from that worktree. Append `Worktree: created <full-path>` to `.sdd/progress.md` in the checkout you will implement in (create the file if needed).
+- **If isolation creation fails:** stop and ask the human to choose an alternative mechanism or explicitly allow work in the current checkout. Do not append `Worktree: in-place` or dispatch Task 1 without that permission. Record only the checkout that was actually agreed and used: `Worktree: created <path>` or `Worktree: existing <path>` for the chosen mechanism, or `Worktree: in-place` only after the human explicitly allows in-place work.
 - **No:** append `Worktree: in-place` and continue in this checkout.
+
+The one-time workspace preference in step 4 and a permission after an isolation failure are different questions. A recorded yes to the preference does not authorize in-place work when creation fails; do not re-ask the preference, ask only for the alternative or explicit in-place permission.
 
 Do not use using-git-worktrees for Task implementer subagents. Do not attach review worktrees. Isolate only, and only after the human said yes. `[WORKDIR]` is this chosen checkout.
 
