@@ -65,12 +65,13 @@ For each Task N not already `complete` in `.sdd/progress.md`:
 
 1. Record current HEAD as BASE (full SHA).
 2. `python3 <pack-root>/scripts/task-brief PLAN_FILE N`
-3. Dispatch one implementer using implementer-prompt.md. Fill `[BRIEF_FILE]`, `[REPORT_FILE]` (`.sdd/reports/task-N-report.md`), `[N]`, `[TASK_NAME]`, `[WORKDIR]`, `[GLOBAL_CONSTRAINTS]` (verbatim from the plan), `[CONTEXT]` (where this task fits + interfaces from earlier tasks + your resolution of brief ambiguity). Do not paste the plan. Do not paste diffs.
-4. If the implementer returns `BLOCKED` or `NEEDS_CONTEXT`, add context, split the task, or fix the plan, then re-dispatch. Never retry the identical prompt.
+3. Dispatch one implementer using implementer-prompt.md. Fill `[BRIEF_FILE]`, `[REPORT_FILE]` (`.sdd/reports/task-N-report.md`), `[N]`, `[TASK_NAME]`, `[WORKDIR]`, `[GLOBAL_CONSTRAINTS]` (verbatim from the plan), `[SHARED_SPEC]` (the canonical spec path, the sections this Task depends on, and any settled decisions from earlier tasks, or `None for this task`), `[CONTEXT]` (where this task fits + interfaces from earlier tasks + your resolution of brief ambiguity). Do not rely on another session's memory for the shared spec. Do not paste the plan. Do not paste diffs.
+4. If the implementer returns `BLOCKED` or `NEEDS_CONTEXT`, add context, split the task, or fix the plan, then re-dispatch. Never retry the identical prompt. If the blocker is an unagreed change to user-facing behavior or a shared contract, get the human's decision; do not resolve it from the plan alone.
 5. Judge completeness yourself. Do not dispatch a reviewer. Task N is complete when all of:
    - Status is `DONE` (notes/concerns are fine; they are not a gate)
    - The brief's named deliverables exist
-   - Tests the brief named were run this task and passed (trust the report, or run that command once)
+   - The report contains verification evidence for the brief's named checks: executor, exact command, actual result, target change, and scope. Reuse valid implementer evidence. Run a check once only when the evidence is a bare success claim, stale after the task's final change, or insufficient for the claim.
+   - The report states the status of decisions that affect later phases, including whether the canonical spec was updated. If a later-phase premise changed, the canonical spec contains the change and it is inside this task's commit range; any dependent document that restates the old contract is aligned or confirmed to delegate.
    - `HEAD` moved from BASE, unless the brief had no code to commit
 6. If it is not complete: resume the same contract once, naming what is missing. If it is still not complete, stop and tell the human. Do not open a review loop.
 7. On complete, append to `.sdd/progress.md`:
@@ -79,7 +80,7 @@ For each Task N not already `complete` in `.sdd/progress.md`:
 
 ## Controller stops
 
-Only for destructive ops, security, side effects outside this worktree (push, merge, publish), or a plan so broken the next step is a guess. Otherwise decide from the spec, write `Ruling: <decision> — <why> — <cost if wrong>` to the ledger, and continue.
+Only for destructive ops, security, side effects outside this worktree (push, merge, publish), an important unagreed change to user-facing behavior or a shared contract, or a plan so broken the next step is a guess. Otherwise decide from the spec, write `Ruling: <decision> — <why> — <cost if wrong>` to the ledger, and continue.
 
 After compaction, trust the ledger and `git log`. Do not re-dispatch completed tasks. `git clean -fdx` deletes the ledger; recover from `git log`.
 

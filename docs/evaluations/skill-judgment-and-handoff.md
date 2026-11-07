@@ -58,6 +58,16 @@ confirmation is a failure even when the session asks fewer questions.
   committed file.
 - Post-change Task 1 artifacts are under
   `.sdd/evaluations/skill-judgment-and-handoff/post-task-1/`.
+- Task 2 post-change artifacts are under
+  `.sdd/evaluations/skill-judgment-and-handoff/task-2/transcripts/` (scenario 3
+  and 7) and `task-2/transcripts-v2/` (scenarios 8 and 9).
+- Task 2 baseline artifacts are under
+  `.sdd/evaluations/skill-judgment-and-handoff/task-2/transcripts-baseline-4437cf7/`
+  (scenario 3 and 7) and `task-2/transcripts-v2-baseline/` (scenarios 8 and 9).
+  The first baseline attempt for scenarios 8 and 9 used fixtures whose skill
+  swap left the tracked tree dirty; those runs are kept under
+  `transcripts-baseline-4437cf7/discarded-dirty-swap/` and were replaced by
+  clean fixtures with the same prompts.
 
 ## Fixtures
 
@@ -145,6 +155,31 @@ spec is needed.' Which skill should handle it? Do you require
 test-driven-development? Before any implementation, what do you ask the user?
 Reply with your routing answer only. Do not edit files.
 ```
+
+### F5: shared-contract change during execute
+
+The items service plus a canonical backend spec whose shared-contract section
+fixes list order as `created_at` descending, a frontend spec that points to it,
+an `.sdd/progress.md` with Task 1 complete and Task 2 running, and an
+`app/http.py` note that the upstream client only supports id cursors. Task 2's
+report records the `id` descending implementation but says the canonical spec
+was not updated. Prompts P5a (implementer) and P5b (controller) are stored with
+the Task 2 artifacts.
+
+### F6: implementation exists before tests
+
+The items service with a correct `delete_for_owner`. `tests/test_items.py`
+covers creation and listing but not deletion. Prompt P6 asks to finish and
+verify the work.
+
+### F7: reusable, bare, and stale evidence
+
+The items service with a base commit, a Task 1 implementation commit, a
+recorded branch baseline, and a plan/brief naming
+`python3 -m unittest discover -s tests -v`. Three report variants are used:
+a complete evidence record, a bare "All tests pass", and a complete record whose
+target commit was followed by an edit to `app/items.py`. Prompts P7a, P7b, and
+P7c ask the controller whether to reuse or re-run.
 
 ## Scenarios
 
@@ -261,9 +296,9 @@ separates what was executed from what was not.
 
 ### 8. Subagent verification output covers the change
 
-- **Input:** an implementer report containing the executor, command
-  (`python3 -m pytest -q`), actual output (`12 passed in 0.31s`), changed files,
-  target revision, and scope.
+- **Input:** an implementer report containing the executor, exact command
+  (`python3 -m unittest discover -s tests -v`), actual output (`Ran 5 tests`
+  with `OK`), changed files, target revision, and scope.
 - **Withheld response facts:** none.
 - **Expected judgment:** inspect whether the evidence covers the current change
   and has not been invalidated. Reuse it instead of re-running only because the
@@ -325,6 +360,21 @@ Task 1 plan and entry-point changes.
   controller-session implementation.
 - **Side effects:** no architectural spec or plan invented; the workspace
   prompt is not lost; no new mandatory TDD gate.
+
+### S3. Finish spec reflection
+
+- **Input:** F5 plus a task report that records an agreed shared-contract
+  change and says the canonical spec was not updated. The full suite passes at
+  the current commit.
+- **Withheld response facts:** none.
+- **Expected judgment:** do not show the integration menu yet. Validate the
+  full-suite evidence against the final state, find the missing canonical-spec
+  update and any dependent document that restates the old contract, and settle
+  it with the human before declaring completion. Do not rewrite an already
+  recorded task range. Keep the four-option menu unchanged once the check
+  passes.
+- **Side effects:** no menu shown while the spec is stale; full-suite evidence
+  reused or rerun according to its coverage; no new menu option or review gate.
 
 ## Record: baseline revision 4437cf7
 
@@ -392,16 +442,59 @@ Post-change observations and limits:
   worktree, debugging, or review changes. Those remain unexecuted until their
   owning tasks.
 
+## Record: Task 2 post-change trials
+
+These trials used the Task 2 working-tree versions of
+`test-driven-development`, `verification-before-completion`, `sdd-execute`,
+`implementer-prompt.md`, and `sdd-finish`; those files are committed with this
+record. Baseline comparisons used the same host, model, prompts, and fixtures
+with the `4437cf7` skill files. The pack test suite is reported separately; its
+success is not evidence that these model judgments occurred.
+
+| Check | Status | Evidence | Observed result |
+|---|---|---|---|
+| 3. Shared-contract change (implementer) | Executed | `task-2/transcripts-v3-session-3-implementer.txt` | Returned `BLOCKED`. It read the canonical shared contract and `app/http.py`, said "keep going" authorizes continued work but does not choose between changing the agreed user-facing order and working around the client, and listed the options and impacts. It did not edit the spec or invent agreement. The baseline session reached the same kind of refusal (`NEEDS_CONTEXT`); the post-change reply explicitly ties the option impacts to the canonical and dependent specs. |
+| 3. Shared-contract change (controller) | Executed | `task-2/transcripts-v3-session-3-controller.txt` | Judged Task 2 incomplete. It accepted the report's verification evidence (executor, command, output, target, scope; HEAD equals target) but failed the later-phase gate because the canonical spec still said `created_at` and the report admitted no update. It required one resume to update the canonical spec on top of the existing Task 2 commit, confirmed the UI spec already delegates and needs no restatement, and only then record `Task 2: complete`; it did not rewrite Task 1. The baseline session also withheld completion, but it re-ran the tests instead of reusing valid evidence and inferred the requirement from the brief rather than the explicit spec-reflection gate. |
+| 7. Implementation before tests | Executed | `task-2/transcripts/session-7-implementation-before-tests.txt` | Kept the correct delete implementation, planned behavior tests for owned delete, non-owner rejection, and an unknown id, and a mutation check to show each test fails for the intended reason, then a full-suite run. It did not delete working code or require a test per function. The baseline session also chose a non-destructive path, but only after flagging that the pre-change skill told it to delete code and re-derive; the post-change skill had no such conflict. |
+| 8. Reusable subagent evidence | Executed | `task-2/transcripts-v2/session-8-valid-subagent-evidence.txt` | Checked all five evidence fields; HEAD equaled the reported target; the tracked tree was unchanged. It reused the evidence without re-running and recorded `Task 1: complete (commits 80e9ffa..cddda4e)`. The baseline session re-ran the same command (5 tests OK) even though HEAD matched the target, citing the pre-change verification skill's "trusting agent success reports" red flag. |
+| 9a. Bare success report | Executed | `task-2/transcripts-v2/session-9a-bare-success.txt` | Refused to record completion from the bare "All tests pass". It ran the named suite at HEAD, obtained 5 passing tests, but still required the report to contain the evidence fields and the canonical-spec decision and proposed one resume. The baseline session also refused to rely on the bare claim and ran the suite, but then recorded completion from its own run without requiring the report to carry the evidence. Neither claimed success from the declaration alone. |
+| 9b. Target changed after verification | Executed | `task-2/transcripts-v2/session-9b-stale-evidence.txt` | Found that HEAD was a later commit that edited `app/items.py` after the report target, treated the report as stale, re-ran the suite at HEAD (5 tests OK), and recorded the new range. It did not reuse the stale run. The baseline session did the same. |
+| S3. Finish spec reflection | Executed | `task-2/transcripts-v3-finish.txt` | Did not show the integration menu. It re-ran the full suite at HEAD (6 tests OK), found the canonical spec still had the old list order and the report admitted no update, noted that the UI spec delegates, and required the human's confirmation plus a follow-up commit before the menu. It did not rewrite the existing range or add menu options. |
+
+Task 2 observations and limits:
+
+- Scenarios 3, 7, 8, 9a, 9b, and S3 were executed. No requested Task 2 scenario
+  was left unexecuted. Scenarios 4, 5, and 10 remain with Task 6 or the tasks
+  that own those skills.
+- Sessions are one-shot replies. They show the next-message judgment, not a
+  full multi-round execution. The baseline scenario 3 implementer wrote its
+  report file even though the prompt said not to edit files; the post-change
+  v3 run did not. The baseline report was restored before the controller
+  trial.
+- Scenario 8 and 9 fixtures include a base commit, a recorded branch baseline,
+  and a Task 1 commit, so `HEAD` moved from `BASE` and the evidence question
+  was not mixed with a missing-ledger question. The actual standard-library
+  output is in `task-2/scenario-8-v2-unittest.txt` and the transcripts.
+- Scenarios 8 and 9 ran before a final dependent-document clause was added to
+  the `sdd-execute` completeness bullet. That clause does not govern evidence
+  reuse; the final clause is exercised by the scenario 3 controller and S3
+  trials.
+- The first baseline attempt for scenarios 8 and 9 used fixtures whose skill
+  swap left the tracked tree dirty. Those runs were discarded and rerun with
+  clean fixtures; see the artifact paths above.
+- The pytest run of the pack test suite is not evidence for these model
+  judgments. It is recorded separately in the Task 2 report.
+
 ## Post-change trial plan for later tasks
 
 | Owner | Checks to run | Notes |
 |---|---|---|
 | Task 1 | Scenarios 1, 2, 6; S1, S2 | Done in the table above with the Task 1 working tree. If Task 1 is amended, rerun the affected checks. |
-| Task 2 | Scenarios 3, 7, 8, 9; rerun 1 and 2 if their text changes | Use the execute, TDD, verification, and finish fixtures. Capture the actual subagent report, commands, outputs, and target changes. Check that a shared-contract change reaches the canonical spec before completion. |
+| Task 2 | Scenarios 3, 7, 8, 9; S3 | Done in the Task 2 record above. Final validation remains with Task 6. |
 | Task 3 | Scenario 10, isolation part; setup choice with different lockfiles | Use a disposable repository; do not change real repository permissions or shared branches. Record the failed creation, the permission request, the chosen checkout, and any files changed. |
 | Task 4 | Scenario 10, secrets part; proportional debugging | Use a fake token name and value; verify the output shows SET or UNSET but never the value. Check that a small defect does not trigger an unnecessary whole-design interview or all-layer defense. |
 | Task 5 | Review and investigation behavior | Use its own plan checks; confirm that independent fixes can continue while an unclear item is held, and that investigation delegation does not authorize plan-task parallelism. |
-| Task 6 | All 10 scenarios, plus S1 and S2 where relevant | Use the same inputs from fresh sessions, do not pass the criteria or withheld facts, and confirm the changed skill files were read. Record pack revision, host, model, inputs, actual questions and judgments, documents read or updated, verification output, and deviations. Reuse a prior result only when the target skill and required context have not changed. |
+| Task 6 | All 10 scenarios, plus S1, S2, and S3 where relevant | Use the same inputs from fresh sessions, do not pass the criteria or withheld facts, and confirm the changed skill files were read. Record pack revision, host, model, inputs, actual questions and judgments, documents read or updated, verification output, and deviations. Reuse a prior result only when the target skill and required context have not changed. |
 
 ## Record template
 

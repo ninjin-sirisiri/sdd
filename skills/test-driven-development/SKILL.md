@@ -1,48 +1,43 @@
 ---
 name: test-driven-development
-description: Use when implementing any feature or bugfix, before writing implementation code
+description: Use when a test-first workflow fits the behavior change, bug fix, or refactor you are about to make and you choose to apply it
 ---
 
 # Test-Driven Development (TDD)
 
 ## Overview
 
-Write the test first. Watch it fail. Write minimal code to pass.
+TDD is a method for specifying behavior before implementing it: write the test first, watch it fail for the right reason, write minimal code to pass.
 
-**Core principle:** If you didn't watch the test fail, you don't know if it tests the right thing.
+**Core principle:** A test you have watched fail for the expected reason is evidence that it can catch that break.
 
-**Violating the letter of the rules is violating the spirit of the rules.**
+TDD is a strong way to protect behavior, not a gate. Choose it when the behavior can be specified before implementation and the regression risk justifies it. When implementation already exists, keep correct code and add behavior tests instead of deleting work because of its order.
 
 ## When to Use
 
-**Always:**
-- New features
-- Bug fixes
-- Refactoring
-- Behavior changes
+A good fit:
+- New or changed observable behavior with a clear contract
+- A bug you can reproduce as a failing test
+- A refactor already covered by tests
+- Risky logic where a wrong branch, boundary, or side effect is plausible
 
-**Exceptions (ask your human partner):**
-- Throwaway prototypes
-- Generated code
-- Configuration files
+May fit less well:
+- Throwaway prototypes, generated code, or configuration-only changes
+- Implementation-first work where correct code already exists
+- Changes whose risk is better covered by integration, end-to-end, or manual checks
 
-Thinking "skip TDD just this once"? Stop. That's rationalization.
+Choose based on the behavior being changed and the regression risk. Test selection does not depend on function count: trivial getters, constants, and pure forwarding do not each need a test. If the human or the calling context requires TDD, follow that requirement; otherwise this skill supplies the method, not a mandate.
+
+Thinking "TDD does not fit here"? Say why, and name the verification that covers the behavior instead.
 
 ## The Iron Law
 
 ```
-NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST
+WHEN YOU CHOOSE TDD:
+NO NEW BEHAVIOR WITHOUT A TEST THAT FIRST FAILS FOR THE RIGHT REASON
 ```
 
-Write code before the test? Delete it. Start over.
-
-**No exceptions:**
-- Don't keep it as "reference"
-- Don't "adapt" it while writing tests
-- Don't look at it
-- Delete means delete
-
-Implement fresh from tests. Period.
+Wrote the implementation before the test? Keep it if it is correct. Add the behavior test, confirm it fails when the behavior is broken (temporarily revert or mutate the implementation), then restore and confirm it passes. Do not delete working code merely because it was written first.
 
 ## Red-Green-Refactor
 
@@ -112,7 +107,7 @@ Vague name, tests mock not code
 
 ### Verify RED - Watch It Fail
 
-**MANDATORY. Never skip.**
+Do not skip this when you are using TDD.
 
 ```bash
 npm test path/to/test.test.ts
@@ -123,7 +118,7 @@ Confirm:
 - Failure message is expected
 - Fails because feature missing (not typos)
 
-**Test passes?** You're testing existing behavior. Fix test.
+**Test passes?** You're testing existing behavior, or the test does not exercise the change. Fix the test.
 
 **Test errors?** Fix error, re-run until it fails correctly.
 
@@ -167,7 +162,7 @@ Don't add features, refactor other code, or "improve" beyond the test.
 
 ### Verify GREEN - Watch It Pass
 
-**MANDATORY.**
+Run the test and the surrounding suite.
 
 ```bash
 npm test path/to/test.test.ts
@@ -213,35 +208,29 @@ When writing or changing any test, read [writing-good-tests.md](writing-good-tes
 
 | Excuse | Reality |
 |--------|---------|
-| "Too simple to test" | Simple code breaks. Test takes 30 seconds. |
-| "I'll test after" | Tests written after pass immediately — which proves nothing. They may test the wrong thing, test the implementation instead of the behavior, or miss the edge case you forgot. You never watched it fail, so you never proved it can catch the bug. Test-first forces that failure. |
-| "Tests after achieve same goals (spirit not ritual)" | Tests-after answer "what does this do?"; tests-first answer "what should this do?" Tests written after are biased by the code you already wrote — you verify the cases you remembered, not the ones you'd have discovered. Coverage without proof the tests work. |
+| "Too simple to test" | Simple code can break. Test the boundary that carries risk, not every helper. |
+| "I'll test after" | Tests added after are weaker evidence unless you confirm they can fail. That is allowed when implementation already exists; validate the test against a broken version when practical. |
+| "Tests after achieve the same goals (spirit not ritual)" | Tests-after can protect behavior, but they have not shown they can fail. Confirm with a temporary revert or a mutation when practical. |
 | "Already manually tested" | Manual testing is ad-hoc: no record of what you covered, no way to re-run it when the code changes, easy to forget cases under pressure. "Worked when I tried it" ≠ comprehensive. Automated tests run the same way every time. |
-| "Deleting X hours is wasteful" | Sunk cost fallacy — that time is already spent either way. The real choice: rewrite with TDD (high confidence) vs. keep it and bolt tests on after (low confidence, likely bugs). Keeping code you can't trust is the waste. |
-| "Keep as reference, write tests first" | You'll adapt it. That's testing after. Delete means delete. |
-| "Need to explore first" | Fine. Throw away exploration, start with TDD. |
+| "Deleting X hours is wasteful" | You do not need to delete it. Keep correct working code and add behavior tests that demonstrate the break they catch. |
+| "Keep as reference, write tests first" | Keeping correct code is fine. The risk is unverified code, not the order itself. Add tests that can fail for the right reason. |
+| "Need to explore first" | Explore, then decide whether the behavior is test-first or implementation-first with a later behavior test. |
 | "Test hard = design unclear" | Listen to test. Hard to test = hard to use. |
-| "TDD will slow me down" | TDD IS the pragmatic path: catches bugs before commit, prevents regressions, lets you refactor without fear. "Pragmatic" shortcuts mean debugging in production — slower, not faster. |
+| "TDD will slow me down" | TDD can be slower up front and cheaper than debugging production. Use it where behavior and risk justify it. |
 | "Manual test faster" | Manual doesn't prove edge cases. You'll re-test every change. |
-| "Existing code has no tests" | You're improving it. Add tests for existing code. |
+| "Existing code has no tests" | Add tests for the behavior you change; you do not need to retrofit every function. |
 
-## Red Flags - STOP and Start Over
+## Red Flags - Check the Test or the Evidence
 
-- Code before test
-- Test after implementation
-- Test passes immediately
-- Can't explain why test failed
-- Tests added "later"
-- Rationalizing "just this once"
-- "I already manually tested it"
-- "Tests after achieve the same purpose"
-- "It's about spirit not ritual"
-- "Keep as reference" or "adapt existing code"
-- "Already spent X hours, deleting is wasteful"
-- "TDD is dogmatic, I'm being pragmatic"
-- "This is different because..."
+- Test passes immediately when you expected it to fail
+- Can't explain why the test would fail
+- Test asserts implementation internals or mock behavior instead of the real behavior
+- Test added after implementation and never shown to fail
+- "I already manually tested it" used as the only evidence
+- Rationalizing away a behavior check the change needs
+- "This is different because..." used to avoid stating what verifies it
 
-**All of these mean: Delete code. Start over with TDD.**
+These are prompts to inspect the test or evidence, not proof that code must be deleted. A test added after implementation is acceptable when you confirm it catches the intended break; it is not the same evidence as a test you watched fail first.
 
 ## Example: Bug Fix
 
@@ -282,18 +271,18 @@ Extract validation for multiple fields if needed.
 
 ## Verification Checklist
 
-Before marking work complete:
+Before marking work complete, when TDD was chosen:
 
-- [ ] Every new function/method has a test
-- [ ] Watched each test fail before implementing
-- [ ] Each test failed for expected reason (feature missing, not typo)
-- [ ] Wrote minimal code to pass each test
-- [ ] All tests pass
+- [ ] The behavior changed by this work has a test, or another check covers it and the reason is recorded
+- [ ] Each test names the break it catches
+- [ ] Tests expected to fail did fail for the expected reason (feature missing, not a typo)
+- [ ] Wrote minimal code to make each test pass
+- [ ] All relevant tests pass
 - [ ] Output pristine (no errors, warnings)
 - [ ] Tests use real code (mocks only if unavoidable)
-- [ ] Edge cases and errors covered
+- [ ] Edge cases and errors covered in proportion to risk
 
-Can't check all boxes? You skipped TDD. Start over.
+When implementation came first, replace the fail-first items with evidence that each added test catches the intended break. A missed box does not by itself mean deleting working code; it means the evidence for that behavior is not yet sufficient.
 
 ## When Stuck
 
@@ -306,15 +295,17 @@ Can't check all boxes? You skipped TDD. Start over.
 
 ## Debugging Integration
 
-Bug found? Write failing test reproducing it. Follow TDD cycle. Test proves fix and prevents regression.
+Bug found? Reproduce it with a failing test when practical, or record another evidence-based reproduction. Confirm the test fails for the right reason, then fix. The regression test proves the fix and prevents recurrence.
 
-Never fix bugs without a test.
+Every bug fix needs regression evidence. TDD is one way to produce it, not the only acceptable order.
 
 ## Final Rule
 
 ```
-Production code → test exists and failed first
-Otherwise → not TDD
+Tests protect behavior and regression risk.
+When TDD is chosen, a test that failed for the right reason
+before the change is the strongest evidence.
+Correct implementation written first is kept, not deleted.
 ```
 
-No exceptions without your human partner's permission.
+If the human or the calling context requires TDD, follow it. Otherwise choose the method that gives the behavior the evidence its risk requires.

@@ -7,9 +7,17 @@ description: Use after sdd-execute is complete, or after bounded work is green w
 
 Announce: "I'm using sdd-finish."
 
-Use verification-before-completion: run the consuming repo's full test suite and read the output. If it fails, report failures and do not show the menu.
+Use verification-before-completion. Require full-suite evidence that covers the final state: executor, exact command, actual output, target revision or commit, and scope. Reuse evidence from the task reports or an earlier run when it still covers the final state. Otherwise run the consuming repo's full test suite and read the output. If it fails, report failures and do not show the menu.
 
 Confirm the base branch (plan, conversation, or upstream). If unsure, ask.
+
+## Spec reflection check
+
+Before the menu, confirm the handoff is complete:
+
+- Decisions recorded in the task reports that affect later phases are reflected in the canonical spec, including any shared-contract change made during implementation. Any dependent document that restates the old contract is aligned or confirmed to delegate.
+- If a decision is missing from the canonical spec, or a dependent document still states the old contract, surface it and settle it with the human before declaring completion. Do not rewrite an already recorded task's commit range or a past ledger line to add it.
+- If no later phase depends on this work, skip this check.
 
 ## Menu
 
@@ -32,7 +40,7 @@ Wait for the human. Do not add extra options.
 
 ## Execute
 
-1. Checkout base, pull, merge the feature branch, re-run tests. On failure, stop and leave the branch. On success, delete the feature branch only after tests pass.
+1. Checkout base, pull, merge the feature branch, re-run the full suite. On failure, stop and leave the branch. On success, delete the feature branch only after tests pass.
 2. `git push -u origin <feature-branch>` then `gh pr create` for that single branch. Needs `gh`.
 3. Do nothing.
 4. Run:
