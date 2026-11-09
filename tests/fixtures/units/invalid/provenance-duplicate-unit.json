@@ -1,0 +1,35 @@
+{
+  "schema": "sdd-provenance",
+  "version": 1,
+  "contract": "semantic-v1",
+  "source": {
+    "path": "docs/sdd/specs/example.md",
+    "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "units": [
+    {
+      "id": "heading-000000",
+      "kind": "heading",
+      "source_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "range": {
+        "start": 0,
+        "end": 9
+      },
+      "parent": null
+    },
+    {
+      "id": "heading-000000",
+      "kind": "heading",
+      "source_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "range": {
+        "start": 10,
+        "end": 19
+      },
+      "parent": null
+    }
+  ],
+  "mappings": [],
+  "strict": [],
+  "supplementary": [],
+  "calculations": []
+}

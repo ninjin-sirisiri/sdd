@@ -72,6 +72,16 @@ The local pre-commit wrapper passes the staged tree to `html-docs check`. CI pas
 
 The pack owns `assets/sdd.css`. Explicit setup places it at `docs/sdd/assets/sdd.css` in the consuming repository. Agent-authored HTML may use the shared semantic classes and `data-*` hooks, but may not add inline styles, document-specific stylesheets, or external stylesheets. CSS-only changes are allowed and are validated separately from Markdown / HTML freshness.
 
+## Semantic reconstruction contract
+
+The strict contract above remains the default and is unchanged. A Target may opt in to `semantic-v1` only by declaring `<meta name="sdd-html-contract" content="semantic-v1">` in the companion head; an unknown contract value is rejected rather than falling back to strict inspection.
+
+`scripts/sddlib/html_units.py` is the common lossless source scanner. It splits the exact Markdown bytes into source units for headings, paragraphs, nested list items, table header and body cells, fenced and indented code, inline code, links, images, and glossary terms and Avoid entries. Every unit records its kind, parent, stable ID, and a half-open UTF-8 byte range in the original bytes, and is bound to the exact source digest. Unsupported Markdown syntax is reported as an explicit unsupported construct instead of being dropped; a document with any unsupported construct is incomplete and cannot pass semantic validation.
+
+A `semantic-v1` companion embeds a non-executing JSON provenance map in `template#sdd-provenance`. The version 1 schema fixes the source path and digest, the unit definitions, many-to-many mappings from units to visible representation target IDs, strict-preservation targets for code, paths, identifiers, link destinations, glossary names, and Avoid entries, supplementary representations with their source units, and calculations with inputs, formula, and result. The schema rejects unknown fields, unknown versions, duplicate IDs, missing references, and missing required fields. A common validator checks the full unit set, references, and static safety; semantic sufficiency remains a separate assessment.
+
+An evaluation receipt under `docs/sdd/html-evidence/` is a JSON auxiliary artifact, not a new Target kind. Version 1 fixes the source path and digest, the complete HTML bytes digest, CSS / resource / policy fingerprints, settings / rubric / profile versions, generation and H2 references, verification results, and per-condition decisions with evidence references. The receipt is not a signature and is not proof of model accuracy; CI checks its structure and binding, not meaning or image quality.
+
 ## Data flow
 
 1. An agent attempts a native file edit.
@@ -154,6 +164,7 @@ The automated suite covers the Python policy and adapters without starting host 
 - Temporary Git repositories cover staged changes, PR-base changes, new pairs, multiple documents, CSS-only changes, HTML-only changes, stale pairs, rename, delete, and existing hook wrappers.
 - Authored fixtures cover Glossary, ADR, Spec, and Plan structures, including `<dl>`, task articles, lead metadata, nested h2 / h3 outlines, duplicate headings, missing outlines, unsafe markup, and irregular heading warnings.
 - Validator tests cover landmarks, skip links, `lang`, CSP, allowed resources, heading IDs, outline links, text order, code, lists, tables, and inaccessible or missing table labels.
+- Source-unit tests cover exact UTF-8 byte ranges under CRLF and Japanese text, nested lists, table headers and cells, code, inline code and links, glossary terms and Avoid entries, unsupported constructs, and schema rejection of unknown fields, versions, duplicate IDs, and missing receipt fields.
 - Each host adapter has payload fixtures for allow, deny, bootstrap, unknown input, and policy failure. No host application or subagent is run in CI.
 - Exact HTML golden comparisons are replaced by structural, security, digest, and text-fidelity assertions.
 - Browser verification uses representative authored documents in desktop / mobile and light / dark modes and checks the three-second outline, squint separation, keyboard navigation, zoom, reduced motion, and page-wide overflow.

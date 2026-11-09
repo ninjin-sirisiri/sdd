@@ -1,0 +1,84 @@
+{
+  "schema": "sdd-html-receipt",
+  "version": 1,
+  "contract": "semantic-v1",
+  "source": {
+    "path": "docs/sdd/specs/example.md",
+    "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "html": {
+    "path": "docs/sdd/specs/example.html",
+    "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "inputs": {
+    "css": [
+      {
+        "path": "docs/sdd/assets/sdd.css",
+        "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      }
+    ],
+    "resources": [],
+    "policy": {
+      "version": "semantic-v1",
+      "digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    }
+  },
+  "versions": {
+    "settings": "settings-1",
+    "rubric": "rubric-1",
+    "profile": "profile-1"
+  },
+  "generation": {
+    "id": "generation-1",
+    "revision": 1,
+    "parent": null,
+    "job": "job-1",
+    "cycle": "cycle-1"
+  },
+  "h2": {
+    "reference": "h2-run-1",
+    "purpose": "Html"
+  },
+  "verification": {
+    "result": "pass",
+    "checks": [
+      {
+        "name": "static",
+        "decision": "pass",
+        "evidence": [
+          "docs/sdd/html-evidence/run-1/static.json"
+        ]
+      }
+    ]
+  },
+  "conditions": [
+    {
+      "id": "information",
+      "decision": "met",
+      "evidence": [
+        "docs/sdd/html-evidence/run-1/information.json"
+      ]
+    },
+    {
+      "id": "support",
+      "decision": "met",
+      "evidence": [
+        "docs/sdd/html-evidence/run-1/support.json"
+      ]
+    },
+    {
+      "id": "usability",
+      "decision": "met",
+      "evidence": [
+        "docs/sdd/html-evidence/run-1/usability.json"
+      ]
+    },
+    {
+      "id": "render",
+      "decision": "met",
+      "evidence": [
+        "docs/sdd/html-evidence/run-1/render.json"
+      ]
+    }
+  ]
+}

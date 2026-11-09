@@ -1,0 +1,62 @@
+{
+  "schema": "sdd-provenance",
+  "version": 1,
+  "contract": "semantic-v1",
+  "source": {
+    "path": "docs/sdd/specs/example.md",
+    "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "units": [
+    {
+      "id": "heading-000000",
+      "kind": "heading",
+      "source_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "range": {
+        "start": 0,
+        "end": 9
+      },
+      "parent": null
+    }
+  ],
+  "mappings": [
+    {
+      "unit": "heading-000000",
+      "representation": "paraphrase",
+      "targets": [
+        "heading-example"
+      ]
+    }
+  ],
+  "strict": [],
+  "supplementary": [
+    {
+      "id": "summary-1",
+      "kind": "summary",
+      "units": [
+        "heading-000000"
+      ],
+      "targets": [
+        "summary-example"
+      ],
+      "description": "Optional summary of the heading."
+    }
+  ],
+  "calculations": [
+    {
+      "id": "count-1",
+      "operation": "count",
+      "inputs": [
+        {
+          "value": 1,
+          "unit": null,
+          "source": "heading-000000"
+        }
+      ],
+      "formula": "count(units)",
+      "result": {
+        "value": 1,
+        "unit": null
+      }
+    }
+  ]
+}

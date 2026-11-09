@@ -1,0 +1,10 @@
+{
+  "schema": "sdd-provenance",
+  "version": 1,
+  "contract": "semantic-v1",
+  "units": [],
+  "mappings": [],
+  "strict": [],
+  "supplementary": [],
+  "calculations": []
+}

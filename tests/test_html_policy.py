@@ -57,6 +57,27 @@ def test_resolves_exact_targets_and_adjacent_companions(tmp_path: Path) -> None:
     assert resolve_target(tmp_path, "README.md") is None
     assert resolve_target(tmp_path, "docs/adr/nested/choice.md") is None
     assert resolve_target(tmp_path, "docs/sdd/assets/sdd.css") is None
+    assert resolve_target(tmp_path, "docs/sdd/adr/0001-choice.md") is None
+    assert resolve_target(tmp_path, "docs/sdd/adr/0001-choice.html") is None
+    assert resolve_target(tmp_path, "docs/sdd/specs/nested/example.md") is None
+    assert resolve_target(tmp_path, "docs/sdd/plans/nested/example.md") is None
+
+
+def test_documented_target_hierarchy_does_not_accept_docs_sdd_adr(tmp_path: Path) -> None:
+    # The canonical Target set is CONTEXT.md, docs/adr, docs/sdd/specs, and
+    # docs/sdd/plans.  docs/sdd/adr is outside it even though the shared
+    # directory table once admitted it.
+    source = tmp_path / "docs/sdd/adr/0001-choice.md"
+    source.parent.mkdir(parents=True)
+    source.write_text("# Choice\n", encoding="utf-8")
+
+    assert resolve_target(tmp_path, source) is None
+    assert resolve_target(tmp_path, source.with_suffix(".html")) is None
+
+    result = check_edit(tmp_path, [source])
+    assert result["decision"] == "allow"
+    assert result["paths"] == []
+    assert result["message"] == "No synchronized target documents are affected."
 
 
 def test_resolver_accepts_absolute_paths_and_rejects_escape(tmp_path: Path) -> None:

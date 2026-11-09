@@ -1,0 +1,14 @@
+{
+  "schema": "sdd-provenance",
+  "version": 2,
+  "contract": "semantic-v1",
+  "source": {
+    "path": "docs/sdd/specs/example.md",
+    "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "units": [],
+  "mappings": [],
+  "strict": [],
+  "supplementary": [],
+  "calculations": []
+}

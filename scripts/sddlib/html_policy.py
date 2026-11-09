@@ -17,7 +17,6 @@ PathInput: TypeAlias = str | os.PathLike[str]
 PolicyResult: TypeAlias = dict[str, object]
 
 _TARGET_DIRECTORIES = {
-    "adr": "adr",
     "specs": "spec",
     "plans": "plan",
 }

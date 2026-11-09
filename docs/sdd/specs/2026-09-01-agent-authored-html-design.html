@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src &#x27;none&#x27;; img-src &#x27;self&#x27; data:; style-src &#x27;self&#x27;; base-uri &#x27;none&#x27;; form-action &#x27;none&#x27;; frame-ancestors &#x27;none&#x27;; script-src &#x27;none&#x27;; connect-src &#x27;none&#x27;">
-<meta name="sdd-source-digest" content="sha256:da3594c85c81bc254f6fb7ea005572b4cf7f067bc504bbdf86c48eb7b77d195d">
+<meta name="sdd-source-digest" content="sha256:2b082b3ea4c82c0967461929caddd9295b47651c5a5dc73f108e8b121d9b935e">
 <title>Agent-authored HTML design</title>
 <link rel="stylesheet" href="../assets/sdd.css">
 </head>
@@ -31,6 +31,7 @@
 <li><a href="#shared-css">Shared CSS</a></li>
 </ol>
 </li>
+<li><a href="#semantic-reconstruction-contract">Semantic reconstruction contract</a></li>
 <li><a href="#data-flow">Data flow</a>
 <ol>
 <li><a href="#edit-order-invariants">Edit-order invariants</a></li>
@@ -142,6 +143,14 @@
 </section>
 
 <section>
+<h2 id="semantic-reconstruction-contract">Semantic reconstruction contract</h2>
+<p>The strict contract above remains the default and is unchanged. A Target may opt in to <code>semantic-v1</code> only by declaring <code>&lt;meta name="sdd-html-contract" content="semantic-v1"&gt;</code> in the companion head; an unknown contract value is rejected rather than falling back to strict inspection.</p>
+<p><code>scripts/sddlib/html_units.py</code> is the common lossless source scanner. It splits the exact Markdown bytes into source units for headings, paragraphs, nested list items, table header and body cells, fenced and indented code, inline code, links, images, and glossary terms and Avoid entries. Every unit records its kind, parent, stable ID, and a half-open UTF-8 byte range in the original bytes, and is bound to the exact source digest. Unsupported Markdown syntax is reported as an explicit unsupported construct instead of being dropped; a document with any unsupported construct is incomplete and cannot pass semantic validation.</p>
+<p>A <code>semantic-v1</code> companion embeds a non-executing JSON provenance map in <code>template#sdd-provenance</code>. The version 1 schema fixes the source path and digest, the unit definitions, many-to-many mappings from units to visible representation target IDs, strict-preservation targets for code, paths, identifiers, link destinations, glossary names, and Avoid entries, supplementary representations with their source units, and calculations with inputs, formula, and result. The schema rejects unknown fields, unknown versions, duplicate IDs, missing references, and missing required fields. A common validator checks the full unit set, references, and static safety; semantic sufficiency remains a separate assessment.</p>
+<p>An evaluation receipt under <code>docs/sdd/html-evidence/</code> is a JSON auxiliary artifact, not a new Target kind. Version 1 fixes the source path and digest, the complete HTML bytes digest, CSS / resource / policy fingerprints, settings / rubric / profile versions, generation and H2 references, verification results, and per-condition decisions with evidence references. The receipt is not a signature and is not proof of model accuracy; CI checks its structure and binding, not meaning or image quality.</p>
+</section>
+
+<section>
 <h2 id="data-flow">Data flow</h2>
 <ol>
 <li>An agent attempts a native file edit.</li>
@@ -231,6 +240,7 @@
 <li>Temporary Git repositories cover staged changes, PR-base changes, new pairs, multiple documents, CSS-only changes, HTML-only changes, stale pairs, rename, delete, and existing hook wrappers.</li>
 <li>Authored fixtures cover Glossary, ADR, Spec, and Plan structures, including <code>&lt;dl&gt;</code>, task articles, lead metadata, nested h2 / h3 outlines, duplicate headings, missing outlines, unsafe markup, and irregular heading warnings.</li>
 <li>Validator tests cover landmarks, skip links, <code>lang</code>, CSP, allowed resources, heading IDs, outline links, text order, code, lists, tables, and inaccessible or missing table labels.</li>
+<li>Source-unit tests cover exact UTF-8 byte ranges under CRLF and Japanese text, nested lists, table headers and cells, code, inline code and links, glossary terms and Avoid entries, unsupported constructs, and schema rejection of unknown fields, versions, duplicate IDs, and missing receipt fields.</li>
 <li>Each host adapter has payload fixtures for allow, deny, bootstrap, unknown input, and policy failure. No host application or subagent is run in CI.</li>
 <li>Exact HTML golden comparisons are replaced by structural, security, digest, and text-fidelity assertions.</li>
 <li>Browser verification uses representative authored documents in desktop / mobile and light / dark modes and checks the three-second outline, squint separation, keyboard navigation, zoom, reduced motion, and page-wide overflow.</li>
