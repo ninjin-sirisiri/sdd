@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT))
 
 from adapters.claude import html_docs_hook as claude
 from adapters.cursor import html_docs_hook as cursor
+from sddlib.html_policy import check_registrations
 
 
 CURSOR_HOOK = ROOT / "adapters/cursor/html_docs_hook.py"
@@ -228,6 +229,19 @@ def test_policy_timeout_or_failure_denies_html_edit(
     else:
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
         assert "Markdown editing remains available" in result["hookSpecificOutput"]["permissionDecisionReason"]
+
+
+def test_herness_integration_is_not_a_standard_host_registration(tmp_path: Path) -> None:
+    checked = check_registrations(tmp_path)
+
+    assert [item["host"] for item in checked["registrations"]] == [
+        "cursor",
+        "claude",
+        "opencode",
+    ]
+    assert all(item["host"] != "herness" for item in checked["registrations"])
+    assert not (ROOT / "adapters/herness/hooks.json.example").exists()
+    assert not (ROOT / "adapters/herness/html_docs_hook.py").exists()
 
 
 def test_registration_examples_use_required_markers() -> None:

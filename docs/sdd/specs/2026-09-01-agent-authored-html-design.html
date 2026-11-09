@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src &#x27;none&#x27;; img-src &#x27;self&#x27; data:; style-src &#x27;self&#x27;; base-uri &#x27;none&#x27;; form-action &#x27;none&#x27;; frame-ancestors &#x27;none&#x27;; script-src &#x27;none&#x27;; connect-src &#x27;none&#x27;">
-<meta name="sdd-source-digest" content="sha256:aeafd67f928c65d70904e8c24f3ed0bd7b0bab5f0a2b276af4956e85413bce77">
+<meta name="sdd-source-digest" content="sha256:c6b57b002e49394f10181b434bf14c8a4029361515b70ce25e14160ee2d9914d">
 <title>Agent-authored HTML design</title>
 <link rel="stylesheet" href="../assets/sdd.css">
 </head>
@@ -129,6 +129,7 @@
 <h3 id="host-adapters">Host adapters</h3>
 <p>The pack includes thin adapters for the native file-edit events of Cursor, Claude Code, and OpenCode. The adapters translate each host payload to the common CLI contract and translate the result back to the host's allow / deny / feedback format. They do not implement digest or document logic themselves.</p>
 <p>Cursor uses its pre-tool edit decision and post-file-edit / stop feedback. Claude Code uses its pre-tool and post-tool hook events and plugin hook configuration. OpenCode uses its plugin tool-before decision and file-edited event. Each adapter is explicitly enabled by the user; <code>html-docs doctor</code> reports missing, disabled, or incompatible registration.</p>
+<p>A separate, opt-in integration definition for the herness host lives under <code>adapters/herness/</code>. It is not a native edit hook and is not registered by <code>html-docs doctor</code>; the three adapters above keep their standard strict authoring, explicit bootstrap, and registration behavior. The definition declares the versioned host contract that lets an approved herness host own companion authoring dispatch and unsynced state, and it does not itself enable an HTML worker or alter the common policy. See <code>README.md</code> and <code>adapters/herness/README.md</code>.</p>
 </section>
 
 <section>

@@ -64,6 +64,8 @@ The pack includes thin adapters for the native file-edit events of Cursor, Claud
 
 Cursor uses its pre-tool edit decision and post-file-edit / stop feedback. Claude Code uses its pre-tool and post-tool hook events and plugin hook configuration. OpenCode uses its plugin tool-before decision and file-edited event. Each adapter is explicitly enabled by the user; `html-docs doctor` reports missing, disabled, or incompatible registration.
 
+A separate, opt-in integration definition for the herness host lives under `adapters/herness/`. It is not a native edit hook and is not registered by `html-docs doctor`; the three adapters above keep their standard strict authoring, explicit bootstrap, and registration behavior. The definition declares the versioned host contract that lets an approved herness host own companion authoring dispatch and unsynced state, and it does not itself enable an HTML worker or alter the common policy. See `README.md` and `adapters/herness/README.md`.
+
 ### Git and CI adapters
 
 The local pre-commit wrapper passes the staged tree to `html-docs check`. CI passes the PR base reference and checkout tree to the same command. The pack provides provider-neutral commands and examples, not an automatically installed workflow. Existing pre-commit hooks are preserved and invoked by the wrapper rather than silently replaced.

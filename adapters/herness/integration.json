@@ -1,0 +1,85 @@
+{
+  "schema": "sdd-herness-integration",
+  "version": 1,
+  "revision": 1,
+  "host": "herness",
+  "capability": {
+    "name": "automatic-html-companion",
+    "version": 1,
+    "mode": "host-delegated",
+    "summary": "The approved herness host owns HTML companion authoring dispatch, unsynced state, and common static validation; the parent agent must not dispatch or author companion HTML.",
+    "host_contract": {
+      "schema": "herness-sdd-host-contract",
+      "version": 1
+    },
+    "requires": {
+      "html_worker": {
+        "version": 1,
+        "provided_by": "host"
+      },
+      "authoring_dispatch": {
+        "version": 1,
+        "provided_by": "host"
+      },
+      "policy_bridge": {
+        "protocol": "sdd-html-host-api",
+        "version": 1
+      }
+    },
+    "delegation": {
+      "parent_html_dispatch": "forbidden",
+      "parent_html_authoring": "forbidden",
+      "parent_unsynced_reporting": "host",
+      "unsynced_state": "host",
+      "common_validation": "host",
+      "bootstrap": "host-explicit-common-policy",
+      "publication": "host-after-h3-h2-gates"
+    },
+    "approval": {
+      "source": "h3-configuration-registry",
+      "kind": "h3-configuration-approval",
+      "approved_by": "human",
+      "requires": [
+        "project",
+        "settings_version",
+        "approval_id",
+        "targets",
+        "automatic_companion"
+      ],
+      "forbidden_sources": [
+        "environment-variable",
+        "document-declaration",
+        "html-meta",
+        "receipt",
+        "request-actor",
+        "owner-kind",
+        "model-request"
+      ]
+    },
+    "worker": {
+      "provided_by": "host",
+      "enabled_by_definition": false
+    }
+  },
+  "activation": {
+    "requires": "valid-host-contract",
+    "environment_variables": "ignored",
+    "document_declarations": "ignored",
+    "receipts": "ignored",
+    "request_actors": "ignored",
+    "owner_kinds": "ignored",
+    "without_contract": "unavailable"
+  },
+  "fallback": {
+    "other_hosts": "standard-unchanged",
+    "herness_unavailable": "explicit-unavailable"
+  },
+  "pack": {
+    "policy": "sdd-html-policy-v1"
+  },
+  "limitations": [
+    "This definition declares a host contract; it does not implement or enable the herness HtmlWorker.",
+    "The pack validates the contract shape but cannot authenticate the herness configuration registry.",
+    "An active status is host-attested and does not replace H3 evaluation, H2 assessment, publication, Git, or CI."
+  ]
+}

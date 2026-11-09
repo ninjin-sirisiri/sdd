@@ -95,6 +95,25 @@ Target Markdown edit must succeed before its adjacent HTML companion is
 authored in a separate operation, and Git / CI remains the enforcement
 boundary for shell, MCP, manual, or hook-disabled writes.
 
+### Host-delegated HTML (herness)
+
+The standard flow above is unchanged for Cursor, Claude Code, and OpenCode.
+Only herness has an opt-in host-delegated capability, declared in
+`<pack-root>/adapters/herness/integration.json` (version 1). It becomes active
+only when the trusted herness host supplies a valid version 1 host contract
+from its approved H3 configuration registry, with the current pack policy
+identity and host-attested HtmlWorker and authoring dispatch.
+
+When the active herness host reports that capability, do not author companion
+HTML yourself and do not ask the parent model to dispatch an HTML worker.
+Report the unsynced state to the host and let it run the common static
+validation. Do not activate this mode from an environment variable, a
+Markdown or HTML declaration, a receipt, a `RequestActor` or `OwnerKind`
+marker, or a contract you construct yourself. The pack declaration alone does
+not enable the herness HtmlWorker; later host phases must provide it. If the
+host reports the capability unavailable, it stays unavailable: do not fall
+back to parent-authored HTML or to another host's behavior.
+
 Keep the existing SDD pipeline and its no-Superpowers rule. `sdd-execute`
 continues to dispatch one isolated subagent per plan Task, but CI must run
 provider-neutral policy and test commands only: no host application, no

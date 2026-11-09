@@ -132,6 +132,23 @@ Error codes are stable machine-readable names, including `path-escape`, `path-in
 
 The API does not bootstrap, render, assess meaning, call a model, or decide publication. Bootstrap remains the explicit `html-docs bootstrap` operation. The receipt path is supplied by the caller; `sddlib.html_policy.canonical_receipt_path()` (or `Target.receipt_relative`) derives the canonical filename that Git and CI require. `capabilities` reports a policy version and a fingerprint over the static policy modules so a host can refuse a mismatched checkout.
 
+## Host-delegated HTML (herness)
+
+The standard authoring flow above is unchanged for Cursor, Claude Code, and OpenCode. The pack also defines one opt-in, host-delegated capability for herness in `adapters/herness/integration.json` (schema `sdd-herness-integration`, version `1`, revision `1`). It is an integration definition, not a fourth edit hook.
+
+When the trusted herness host supplies a valid version 1 `herness-sdd-host-contract` from its approved H3 configuration registry, the host owns unsynced-state observation, companion authoring dispatch, explicit bootstrap recording, and calls to the common static validation commands. In that state the parent agent must not author companion HTML or ask the parent model to dispatch an HTML worker. The contract must cite the integration definition revision, an H3 configuration approval for the project, its settings version and approved Target set with explicit automatic companion approval, the current pack policy version and fingerprint, the version 1 host API, and host-attested `html_worker` and `authoring_dispatch` capabilities.
+
+An environment variable, a Markdown or HTML declaration, a receipt, a `RequestActor` or `OwnerKind` marker, or a model request is never human approval. The definition declares the contract but does not implement or enable the herness HtmlWorker; later herness phases must provide the real worker. A pack without the definition, and any contract that is absent, stale, uses an unapproved approval source or actor, or omits a required capability, is explicitly `unavailable`. It never falls back to parent-authored HTML or to another host's behavior. Other hosts keep their standard strict authoring, explicit bootstrap, and `html-docs doctor` behavior.
+
+Inspect the definition, or pipe a contract the host obtained from its trusted registry:
+
+```bash
+python3 "$SDD_PACK_ROOT/adapters/herness/integration.py" definition
+python3 "$SDD_PACK_ROOT/adapters/herness/integration.py" status
+```
+
+`status` reads one JSON contract on stdin and returns a versioned `available` / `state` / `code` result. It exits `0` only when active, `1` when unavailable, and `2` for malformed input or usage. It does not read environment variables, the worktree, receipts, or host hooks. See `adapters/herness/README.md` for the contract shape and codes.
+
 ## Git And CI
 
 Install the local HTML freshness gate without silently replacing an existing pre-commit hook:
