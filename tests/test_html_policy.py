@@ -340,6 +340,72 @@ def _violation_codes(result: dict[str, object]) -> set[str]:
     return {item["code"] for item in result["violations"]}  # type: ignore[index]
 
 
+def test_unknown_contract_is_rejected_without_strict_fallback(
+    tmp_path: Path,
+) -> None:
+    source, companion = _copy_fixture(
+        tmp_path, "spec", "2026-01-01-example-design"
+    )
+    companion.write_text(
+        companion.read_text(encoding="utf-8").replace(
+            "</head>",
+            '<meta name="sdd-html-contract" content="semantic-v9">\n</head>',
+        ),
+        encoding="utf-8",
+    )
+
+    result = validate_html(tmp_path, source, companion)
+
+    assert result["decision"] == "deny"
+    assert result["contract"] == "unknown"
+    assert "contract-unknown" in _violation_codes(result)
+    # An unknown contract never falls back to the strict source checks.
+    assert "source-text" not in _violation_codes(result)
+
+
+def test_explicit_strict_contract_keeps_existing_validation_unchanged(
+    tmp_path: Path,
+) -> None:
+    source, companion = _copy_fixture(
+        tmp_path, "spec", "2026-01-01-example-design"
+    )
+    companion.write_text(
+        companion.read_text(encoding="utf-8").replace(
+            "</head>",
+            '<meta name="sdd-html-contract" content="strict">\n</head>',
+        ),
+        encoding="utf-8",
+    )
+
+    result = validate_html(tmp_path, source, companion)
+
+    assert result["decision"] == "allow", result
+    assert result["contract"] == "strict"
+    assert "assurance" not in result
+    assert result["message"].endswith("is valid.")
+
+
+def test_duplicate_contract_meta_is_rejected(
+    tmp_path: Path,
+) -> None:
+    source, companion = _copy_fixture(
+        tmp_path, "adr", "0001-use-postgres"
+    )
+    companion.write_text(
+        companion.read_text(encoding="utf-8").replace(
+            "</head>",
+            '<meta name="sdd-html-contract" content="semantic-v1">\n'
+            '<meta name="sdd-html-contract" content="semantic-v1">\n</head>',
+        ),
+        encoding="utf-8",
+    )
+
+    result = validate_html(tmp_path, source, companion)
+
+    assert result["decision"] == "deny"
+    assert "contract-duplicate" in _violation_codes(result)
+
+
 def test_authored_fixtures_validate_each_document_kind(tmp_path: Path) -> None:
     cases = (
         ("glossary", "CONTEXT"),

@@ -12,6 +12,8 @@ import re
 from typing import TypeAlias
 from urllib.parse import unquote, urlsplit
 
+from sddlib.html_units import SEMANTIC_CONTRACT, STRICT_CONTRACT
+
 
 PathInput: TypeAlias = str | os.PathLike[str]
 PolicyResult: TypeAlias = dict[str, object]
@@ -1099,6 +1101,9 @@ def _validation_result(
     violations: list[dict[str, str]],
     warnings: list[dict[str, str]],
     expected_digest: str | None,
+    *,
+    contract: str = STRICT_CONTRACT,
+    semantic: dict[str, object] | None = None,
 ) -> PolicyResult:
     paths = [target.source_relative, target.companion_relative]
     expected = {target.companion_relative: expected_digest} if expected_digest else {}
@@ -1107,17 +1112,30 @@ def _validation_result(
             item["message"] for item in violations
         )
         decision = "deny"
+    elif contract == SEMANTIC_CONTRACT:
+        message = (
+            f"HTML companion {target.companion_relative} passes static "
+            f"{SEMANTIC_CONTRACT} coverage and exact-preservation checks; "
+            "semantic preservation is not proven."
+        )
+        decision = "allow"
     else:
         message = f"HTML companion {target.companion_relative} is valid."
         decision = "allow"
-    return {
+    result: PolicyResult = {
         "decision": decision,
         "message": message,
         "paths": paths,
         "expected_digests": expected,
         "violations": violations,
         "warnings": warnings,
+        "contract": contract,
     }
+    if contract == SEMANTIC_CONTRACT:
+        result["assurance"] = "static-only"
+        if semantic is not None:
+            result["semantic"] = semantic
+    return result
 
 
 def validate_html(
@@ -1174,6 +1192,17 @@ def validate_html(
     document = parse_html(html_bytes)
     for error in document.errors:
         violations.append(_issue("malformed-html", error, source_relative))
+
+    from sddlib.html_semantic import (
+        detect_contract,
+        validate_semantic_companion,
+    )
+
+    detection = detect_contract(document)
+    contract = detection.contract
+    for issue in detection.issues:
+        violations.append(_issue(issue.code, issue.message, source_relative))
+    semantic_evidence: dict[str, object] | None = None
 
     html_nodes = [node for node in document.nodes if node.tag == "html"]
     if len(html_nodes) != 1:
@@ -1348,27 +1377,28 @@ def validate_html(
             if node.tag in {f"h{i}" for i in range(1, 7)} and _ancestor(node, _OUTLINE_EXCLUDED_TAGS) is None
         ]
         source_headings = _source_headings(source_text)
-        if len(html_headings) != len(source_headings):
-            violations.append(_issue("heading-structure", "Heading count does not match the Markdown source.", source_relative))
-        used: dict[str, int] = {}
-        for index, (source_heading, html_heading) in enumerate(zip(source_headings, html_headings)):
-            source_level, source_title = source_heading
-            expected_id = _slugify(source_title, used)
-            html_level = int(html_heading.tag[1])
-            if html_level != source_level or _normal_text(_node_text(html_heading)) != _normal_text(source_title):
-                violations.append(_issue("heading-structure", f"Heading {index + 1} does not preserve its Markdown level and text.", source_relative))
-            if _attr(html_heading, "id") != expected_id:
-                violations.append(_issue("heading-id", f"Heading {index + 1} must use stable id {expected_id!r}.", source_relative))
-        if len(html_headings) != len(set(_attr(node, "id") for node in html_headings)):
-            violations.append(_issue("heading-id", "Heading ids must be unique.", source_relative))
-        if sum(1 for node in html_headings if node.tag == "h1") > 1:
-            warnings.append(_issue("multiple-h1", "Multiple h1 headings are preserved from Markdown.", source_relative))
-        previous_level = 0
-        for node in html_headings:
-            level = int(node.tag[1])
-            if previous_level and level > previous_level + 1:
-                warnings.append(_issue("skipped-heading-level", "Heading levels skip a rank; the source level was preserved.", source_relative))
-            previous_level = level
+        if contract == STRICT_CONTRACT:
+            if len(html_headings) != len(source_headings):
+                violations.append(_issue("heading-structure", "Heading count does not match the Markdown source.", source_relative))
+            used: dict[str, int] = {}
+            for index, (source_heading, html_heading) in enumerate(zip(source_headings, html_headings)):
+                source_level, source_title = source_heading
+                expected_id = _slugify(source_title, used)
+                html_level = int(html_heading.tag[1])
+                if html_level != source_level or _normal_text(_node_text(html_heading)) != _normal_text(source_title):
+                    violations.append(_issue("heading-structure", f"Heading {index + 1} does not preserve its Markdown level and text.", source_relative))
+                if _attr(html_heading, "id") != expected_id:
+                    violations.append(_issue("heading-id", f"Heading {index + 1} must use stable id {expected_id!r}.", source_relative))
+            if len(html_headings) != len(set(_attr(node, "id") for node in html_headings)):
+                violations.append(_issue("heading-id", "Heading ids must be unique.", source_relative))
+            if sum(1 for node in html_headings if node.tag == "h1") > 1:
+                warnings.append(_issue("multiple-h1", "Multiple h1 headings are preserved from Markdown.", source_relative))
+            previous_level = 0
+            for node in html_headings:
+                level = int(node.tag[1])
+                if previous_level and level > previous_level + 1:
+                    warnings.append(_issue("skipped-heading-level", "Heading levels skip a rank; the source level was preserved.", source_relative))
+                previous_level = level
 
         outlines = [node for node in document.nodes if node.tag in _OUTLINE_TAGS]
         outline_headings = [node for node in html_headings if node.tag in {"h2", "h3"}]
@@ -1445,52 +1475,73 @@ def validate_html(
                 if not any(_under(heading, node) for heading in html_headings if heading.tag in {"h2", "h3"}):
                     violations.append(_issue("plan-task-article", "Each plan task article must contain its task heading.", source_relative))
 
-        source_tokens = _tokens(_markdown_visible_text(source_text))
-        html_tokens = _tokens(_main_visible_text(main))
-        if source_tokens != html_tokens:
-            index = next(
-                (position for position, (expected, actual) in enumerate(zip(source_tokens, html_tokens)) if expected != actual),
-                min(len(source_tokens), len(html_tokens)),
-            )
-            expected_fragment = source_tokens[index] if index < len(source_tokens) else "<end>"
-            actual_fragment = html_tokens[index] if index < len(html_tokens) else "<end>"
-            if expected_fragment in html_tokens[index + 1:]:
-                detail = f"source fragment {expected_fragment!r} is reordered"
-            else:
-                detail = f"source fragment {expected_fragment!r} is missing or changed (found {actual_fragment!r})"
-            violations.append(_issue("source-text", f"First source-text mismatch: {detail}.", source_relative))
-
-        source_links = _markdown_link_destinations(source_text)
-        html_links = [
-            _attr(node, "href") or ""
-            for node in _descendants(main)
-            if node.tag == "a"
-            and _ancestor(node, {"aside", "nav"}) is None
-            and "skip-link" not in _class_names(node)
-        ]
-        if source_links != html_links:
-            index = next(
-                (
-                    position
-                    for position, (expected, actual) in enumerate(
-                        zip(source_links, html_links)
-                    )
-                    if expected != actual
-                ),
-                min(len(source_links), len(html_links)),
-            )
-            expected = source_links[index] if index < len(source_links) else "<end>"
-            actual = html_links[index] if index < len(html_links) else "<end>"
-            violations.append(
-                _issue(
-                    "link-destination",
-                    f"Link destination {index + 1} does not preserve Markdown "
-                    f"source {expected!r} (found {actual!r}).",
-                    source_relative,
+        if contract == STRICT_CONTRACT:
+            source_tokens = _tokens(_markdown_visible_text(source_text))
+            html_tokens = _tokens(_main_visible_text(main))
+            if source_tokens != html_tokens:
+                index = next(
+                    (position for position, (expected, actual) in enumerate(zip(source_tokens, html_tokens)) if expected != actual),
+                    min(len(source_tokens), len(html_tokens)),
                 )
-            )
+                expected_fragment = source_tokens[index] if index < len(source_tokens) else "<end>"
+                actual_fragment = html_tokens[index] if index < len(html_tokens) else "<end>"
+                if expected_fragment in html_tokens[index + 1:]:
+                    detail = f"source fragment {expected_fragment!r} is reordered"
+                else:
+                    detail = f"source fragment {expected_fragment!r} is missing or changed (found {actual_fragment!r})"
+                violations.append(_issue("source-text", f"First source-text mismatch: {detail}.", source_relative))
 
-    return _validation_result(target, violations, warnings, expected_digest)
+            source_links = _markdown_link_destinations(source_text)
+            html_links = [
+                _attr(node, "href") or ""
+                for node in _descendants(main)
+                if node.tag == "a"
+                and _ancestor(node, {"aside", "nav"}) is None
+                and "skip-link" not in _class_names(node)
+            ]
+            if source_links != html_links:
+                index = next(
+                    (
+                        position
+                        for position, (expected, actual) in enumerate(
+                            zip(source_links, html_links)
+                        )
+                        if expected != actual
+                    ),
+                    min(len(source_links), len(html_links)),
+                )
+                expected = source_links[index] if index < len(source_links) else "<end>"
+                actual = html_links[index] if index < len(html_links) else "<end>"
+                violations.append(
+                    _issue(
+                        "link-destination",
+                        f"Link destination {index + 1} does not preserve Markdown "
+                        f"source {expected!r} (found {actual!r}).",
+                        source_relative,
+                    )
+                )
+        elif contract == SEMANTIC_CONTRACT and source_available:
+            semantic = validate_semantic_companion(
+                document,
+                html_bytes,
+                source_bytes,
+                source_path=source_relative,
+                document_kind=target.kind,
+            )
+            semantic_evidence = semantic.evidence()
+            for issue in semantic.issues:
+                violations.append(
+                    _issue(issue.code, issue.message, source_relative)
+                )
+
+    return _validation_result(
+        target,
+        violations,
+        warnings,
+        expected_digest,
+        contract=contract,
+        semantic=semantic_evidence,
+    )
 
 
 # These names make the validator easy to consume from policy-oriented callers.
