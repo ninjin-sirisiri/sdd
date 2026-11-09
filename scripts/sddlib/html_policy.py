@@ -1193,6 +1193,11 @@ def validate_html(
     for error in document.errors:
         violations.append(_issue("malformed-html", error, source_relative))
 
+    from sddlib.html_svg import inspect_svg
+
+    for issue in inspect_svg(document):
+        violations.append(_issue(issue.code, issue.message, source_relative))
+
     from sddlib.html_semantic import (
         detect_contract,
         validate_semantic_companion,
@@ -1235,7 +1240,11 @@ def validate_html(
     ]
     if len(viewports) != 1 or not (_attr(viewports[0], "content") or "").strip():
         violations.append(_issue("viewport", "Exactly one non-empty viewport declaration is required.", source_relative))
-    titles = [node for node in document.nodes if node.tag == "title"]
+    titles = [
+        node
+        for node in document.nodes
+        if node.tag == "title" and _ancestor(node, {"svg"}) is None
+    ]
     if len(titles) != 1 or not _node_text(titles[0]).strip():
         violations.append(_issue("title", "Exactly one non-empty title is required.", source_relative))
 

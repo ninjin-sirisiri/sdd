@@ -54,6 +54,7 @@ from sddlib.html_units import (
     strict_requirements,
     validate_provenance,
 )
+from sddlib.html_svg import validate_diagram_representations
 
 
 CONTRACT_META_NAME = "sdd-html-contract"
@@ -518,6 +519,10 @@ def validate_semantic_companion(
     issues.extend(_number_issues(source_text, main, verified_results))
     issues.extend(_strict_issues(scan, provenance, target_map, main))
     issues.extend(_supplementary_issues(provenance, target_map, main))
+    issues.extend(
+        SemanticIssue(issue.code, issue.message)
+        for issue in validate_diagram_representations(document, provenance, main)
+    )
     issues.extend(calculation_issues)
     if document_kind == "plan":
         issues.extend(_plan_order_issues(source_text, document, main))

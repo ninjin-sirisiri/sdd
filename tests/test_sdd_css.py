@@ -25,8 +25,31 @@ def test_css_exposes_shared_document_hooks() -> None:
         "plan-task",
         "task-number",
         "task-rail",
+        "sdd-figure",
+        "sdd-figure-svg",
+        "sdd-figure-plot",
+        "sdd-figure-explanation",
+        "sdd-data-table",
+        "sdd-evidence",
     }
     assert all(f".{hook}" in CSS for hook in hooks)
+
+
+def test_figure_table_and_evidence_hooks_are_theme_and_narrow_safe() -> None:
+    assert ".sdd-figure {" in CSS
+    assert "padding: var(--space-3);" in CSS
+    assert ".sdd-figure svg" in CSS
+    assert "color: var(--text);" in CSS
+    assert ".sdd-figure-plot" in CSS
+    assert "overflow-x: auto;" in CSS
+    assert "min-width: 36rem;" in CSS
+    assert ".sdd-figure svg text" in CSS
+    assert "fill: currentColor;" in CSS
+    assert ".sdd-data-table" in CSS
+    assert ".sdd-evidence" in CSS
+    assert "@media (max-width: 59.999rem)" in CSS
+    assert ".sdd-figure { padding: var(--space-2); }" in CSS
+    assert "stroke-dasharray" in CSS
 
 
 def test_css_uses_relative_reading_tokens_and_local_overflow() -> None:

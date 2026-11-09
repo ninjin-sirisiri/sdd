@@ -1566,13 +1566,21 @@ def validate_provenance(value: object) -> dict[str, object]:
             item,
             item_path,
             required={"id", "kind", "units", "targets"},
-            allowed={"id", "kind", "units", "targets", "description"},
+            allowed={
+                "id",
+                "kind",
+                "units",
+                "targets",
+                "description",
+                "diagram",
+                "graph",
+            },
         )
         identifier = _string(payload["id"], f"{item_path}.id")
         if identifier in supplementary_ids:
             _fail(f"{item_path}.id", f"duplicate id {identifier!r}")
         supplementary_ids.add(identifier)
-        _choice(
+        kind = _choice(
             payload["kind"], f"{item_path}.kind", set(_SUPPLEMENTARY_KINDS)
         )
         source_units = _list(payload["units"], f"{item_path}.units")
@@ -1585,6 +1593,34 @@ def validate_provenance(value: object) -> dict[str, object]:
         _targets(payload["targets"], f"{item_path}.targets")
         if "description" in payload:
             _string(payload["description"], f"{item_path}.description")
+        declared_units = {str(unit_id) for unit_id in source_units}
+        if kind == "diagram":
+            if "diagram" not in payload:
+                _fail(item_path, "kind 'diagram' requires a diagram object")
+            if "graph" in payload:
+                _fail(item_path, "kind 'diagram' must not carry a graph object")
+            _validate_diagram(
+                payload["diagram"],
+                f"{item_path}.diagram",
+                unit_ids,
+                declared_units,
+            )
+        elif kind == "graph":
+            if "graph" not in payload:
+                _fail(item_path, "kind 'graph' requires a graph object")
+            if "diagram" in payload:
+                _fail(item_path, "kind 'graph' must not carry a diagram object")
+            _validate_graph(
+                payload["graph"],
+                f"{item_path}.graph",
+                unit_ids,
+                declared_units,
+            )
+        elif "diagram" in payload or "graph" in payload:
+            _fail(
+                item_path,
+                "diagram and graph structures require the matching kind",
+            )
 
     calculations = _list(provenance["calculations"], "calculations")
     calculation_ids: set[str] = set()
@@ -1634,6 +1670,193 @@ def validate_provenance(value: object) -> dict[str, object]:
         if result["unit"] is not None:
             _string(result["unit"], f"{item_path}.result.unit")
     return provenance
+
+
+def _validate_diagram(
+    value: object,
+    path: str,
+    unit_ids: set[str],
+    declared_units: set[str],
+) -> None:
+    diagram = _object(
+        value,
+        path,
+        required={"nodes", "edges"},
+        allowed={"nodes", "edges"},
+    )
+    nodes = _list(diagram["nodes"], f"{path}.nodes")
+    if not nodes:
+        _fail(f"{path}.nodes", "must not be empty")
+    element_ids: set[str] = set()
+    node_ids: set[str] = set()
+    for position, item in enumerate(nodes):
+        item_path = f"{path}.nodes[{position}]"
+        payload = _object(
+            item,
+            item_path,
+            required={"id", "label", "units"},
+            allowed={"id", "label", "units"},
+        )
+        identifier = _string(payload["id"], f"{item_path}.id")
+        if identifier in element_ids:
+            _fail(f"{item_path}.id", f"duplicate diagram element id {identifier!r}")
+        element_ids.add(identifier)
+        node_ids.add(identifier)
+        _string(payload["label"], f"{item_path}.label")
+        _evidence_units(
+            payload["units"],
+            f"{item_path}.units",
+            unit_ids,
+            declared_units,
+        )
+
+    edges = _list(diagram["edges"], f"{path}.edges")
+    if not edges:
+        _fail(f"{path}.edges", "must not be empty")
+    for position, item in enumerate(edges):
+        item_path = f"{path}.edges[{position}]"
+        payload = _object(
+            item,
+            item_path,
+            required={"id", "label", "from", "to", "units"},
+            allowed={"id", "label", "from", "to", "units"},
+        )
+        identifier = _string(payload["id"], f"{item_path}.id")
+        if identifier in element_ids:
+            _fail(f"{item_path}.id", f"duplicate diagram element id {identifier!r}")
+        element_ids.add(identifier)
+        _string(payload["label"], f"{item_path}.label")
+        for name in ("from", "to"):
+            endpoint = _string(payload[name], f"{item_path}.{name}")
+            if endpoint not in node_ids:
+                _fail(
+                    f"{item_path}.{name}",
+                    f"unknown diagram node id {endpoint!r}",
+                )
+        _evidence_units(
+            payload["units"],
+            f"{item_path}.units",
+            unit_ids,
+            declared_units,
+        )
+
+
+def _validate_graph(
+    value: object,
+    path: str,
+    unit_ids: set[str],
+    declared_units: set[str],
+) -> None:
+    graph = _object(
+        value,
+        path,
+        required={"series", "axes"},
+        allowed={"series", "axes"},
+    )
+    series = _list(graph["series"], f"{path}.series")
+    if not series:
+        _fail(f"{path}.series", "must not be empty")
+    series_ids: set[str] = set()
+    series_labels: set[str] = set()
+    value_ids: set[str] = set()
+    for position, item in enumerate(series):
+        item_path = f"{path}.series[{position}]"
+        payload = _object(
+            item,
+            item_path,
+            required={"id", "label", "unit", "units", "values"},
+            allowed={"id", "label", "unit", "units", "values"},
+        )
+        identifier = _string(payload["id"], f"{item_path}.id")
+        if identifier in series_ids:
+            _fail(f"{item_path}.id", f"duplicate series id {identifier!r}")
+        series_ids.add(identifier)
+        label = _string(payload["label"], f"{item_path}.label")
+        normalized_label = " ".join(label.split()).casefold()
+        if normalized_label in series_labels:
+            _fail(f"{item_path}.label", f"duplicate series label {label!r}")
+        series_labels.add(normalized_label)
+        if payload["unit"] is not None:
+            _string(payload["unit"], f"{item_path}.unit")
+        _evidence_units(
+            payload["units"],
+            f"{item_path}.units",
+            unit_ids,
+            declared_units,
+        )
+        values = _list(payload["values"], f"{item_path}.values")
+        if not values:
+            _fail(f"{item_path}.values", "must not be empty")
+        for value_position, value_item in enumerate(values):
+            value_path = f"{item_path}.values[{value_position}]"
+            value_payload = _object(
+                value_item,
+                value_path,
+                required={"id", "x", "y"},
+                allowed={"id", "x", "y"},
+            )
+            value_id = _string(value_payload["id"], f"{value_path}.id")
+            if value_id in value_ids:
+                _fail(f"{value_path}.id", f"duplicate graph value id {value_id!r}")
+            value_ids.add(value_id)
+            _number(value_payload["x"], f"{value_path}.x")
+            _number(value_payload["y"], f"{value_path}.y")
+
+    axes = _list(graph["axes"], f"{path}.axes")
+    if not axes:
+        _fail(f"{path}.axes", "must not be empty")
+    axis_ids: set[str] = set()
+    dimensions: set[str] = set()
+    for position, item in enumerate(axes):
+        item_path = f"{path}.axes[{position}]"
+        payload = _object(
+            item,
+            item_path,
+            required={"id", "dimension", "label", "unit", "units"},
+            allowed={"id", "dimension", "label", "unit", "units"},
+        )
+        identifier = _string(payload["id"], f"{item_path}.id")
+        if identifier in axis_ids:
+            _fail(f"{item_path}.id", f"duplicate axis id {identifier!r}")
+        axis_ids.add(identifier)
+        dimension = _choice(
+            payload["dimension"], f"{item_path}.dimension", {"x", "y"}
+        )
+        if dimension in dimensions:
+            _fail(f"{item_path}.dimension", f"duplicate {dimension} axis")
+        dimensions.add(dimension)
+        _string(payload["label"], f"{item_path}.label")
+        if payload["unit"] is not None:
+            _string(payload["unit"], f"{item_path}.unit")
+        _evidence_units(
+            payload["units"],
+            f"{item_path}.units",
+            unit_ids,
+            declared_units,
+        )
+    if dimensions != {"x", "y"}:
+        _fail(f"{path}.axes", "must contain exactly one x and one y axis")
+
+
+def _evidence_units(
+    value: object,
+    path: str,
+    unit_ids: set[str],
+    declared_units: set[str],
+) -> None:
+    units = _list(value, path)
+    if not units:
+        _fail(path, "must not be empty")
+    for index, unit_id in enumerate(units):
+        entry_path = f"{path}[{index}]"
+        identifier = _string(unit_id, entry_path)
+        if identifier not in unit_ids:
+            _fail(entry_path, f"unknown unit id {identifier!r}")
+        if identifier not in declared_units:
+            _fail(
+                entry_path,
+                f"unit {identifier!r} is not declared in supplementary.units",
+            )
 
 
 def _targets(value: object, path: str) -> list[object]:
