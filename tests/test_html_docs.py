@@ -5,15 +5,27 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 
 import pytest
 
 from gitutil import git, init_repo
+from sddlib.html_host_api import policy_identity
+from sddlib.html_policy import (
+    PolicyInputError,
+    bind_receipt,
+    canonical_receipt_path,
+    resolve_target,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "scripts" / "html-docs"
 FIXTURES = ROOT / "tests" / "fixtures"
+SEMANTIC_STEM = "0001-queue-choice"
+SEMANTIC_SOURCE = f"docs/adr/{SEMANTIC_STEM}.md"
+SEMANTIC_HTML = f"docs/adr/{SEMANTIC_STEM}.html"
+CSS_PATH = "docs/sdd/assets/sdd.css"
 
 
 def digest(content: bytes) -> str:
@@ -71,6 +83,150 @@ def update_digest(companion: Path, old: bytes, new: bytes) -> None:
         companion.read_text(encoding="utf-8").replace(digest(old), digest(new)),
         encoding="utf-8",
     )
+
+
+def receipt_document(
+    repo: Path,
+    source_relative: str = SEMANTIC_SOURCE,
+    *,
+    source_bytes: bytes | None = None,
+    html_bytes: bytes | None = None,
+    css: dict[str, bytes] | None = None,
+    resources: dict[str, bytes] | None = None,
+    policy_version: str | None = None,
+    policy_digest: str | None = None,
+    versions: dict[str, str] | None = None,
+    generation: dict[str, object] | None = None,
+    verification: dict[str, object] | None = None,
+    conditions: list[dict[str, object]] | None = None,
+) -> dict[str, object]:
+    html_relative = source_relative[:-3] + ".html"
+    source = source_bytes if source_bytes is not None else (repo / source_relative).read_bytes()
+    html = html_bytes if html_bytes is not None else (repo / html_relative).read_bytes()
+    css = css if css is not None else {CSS_PATH: (repo / CSS_PATH).read_bytes()}
+    resources = resources or {}
+    identity = policy_identity()
+    generation = generation or {
+        "id": "generation-1",
+        "revision": 1,
+        "parent": None,
+        "job": "job-1",
+        "cycle": "cycle-1",
+    }
+    versions = versions or {
+        "settings": "settings-1",
+        "rubric": "rubric-1",
+        "profile": "profile-1",
+    }
+    verification = verification or {
+        "result": "pass",
+        "checks": [
+            {
+                "name": "static",
+                "decision": "pass",
+                "evidence": ["docs/sdd/html-evidence/run-1/static.json"],
+            }
+        ],
+    }
+    conditions = conditions or [
+        {
+            "id": name,
+            "decision": "met",
+            "evidence": [f"docs/sdd/html-evidence/run-1/{name}.json"],
+        }
+        for name in ("information", "support", "usability", "render")
+    ]
+    return {
+        "schema": "sdd-html-receipt",
+        "version": 1,
+        "contract": "semantic-v1",
+        "source": {"path": source_relative, "digest": digest(source)},
+        "html": {"path": html_relative, "digest": digest(html)},
+        "inputs": {
+            "css": [
+                {"path": path, "digest": digest(content)}
+                for path, content in sorted(css.items())
+            ],
+            "resources": [
+                {"path": path, "digest": digest(content)}
+                for path, content in sorted(resources.items())
+            ],
+            "policy": {
+                "version": policy_version or identity["version"],
+                "digest": policy_digest or identity["digest"],
+            },
+        },
+        "versions": versions,
+        "generation": generation,
+        "h2": {"reference": "h2-run-1", "purpose": "Html"},
+        "verification": verification,
+        "conditions": conditions,
+    }
+
+
+def receipt_path(repo: Path, source_relative: str = SEMANTIC_SOURCE) -> Path:
+    return repo / canonical_receipt_path(source_relative)
+
+
+def write_receipt(
+    repo: Path,
+    data: dict[str, object],
+    source_relative: str = SEMANTIC_SOURCE,
+) -> Path:
+    path = receipt_path(repo, source_relative)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return path
+
+
+def read_receipt(repo: Path, source_relative: str = SEMANTIC_SOURCE) -> dict[str, object]:
+    return json.loads(receipt_path(repo, source_relative).read_text(encoding="utf-8"))
+
+
+def advance_generation(
+    receipt: dict[str, object],
+    *,
+    identifier: str = "generation-2",
+    revision: int = 2,
+    parent: str | None = "generation-1",
+) -> dict[str, object]:
+    updated = json.loads(json.dumps(receipt))
+    updated["generation"] = {
+        "id": identifier,
+        "revision": revision,
+        "parent": parent,
+        "job": "job-2",
+        "cycle": "cycle-2",
+    }
+    return updated
+
+
+def setup_semantic(
+    repo: Path,
+    *,
+    with_receipt: bool = True,
+    commit: bool = True,
+    **receipt_options: object,
+) -> tuple[Path, Path]:
+    source, companion = copy_fixture(repo, "adr", SEMANTIC_STEM)
+    if with_receipt:
+        write_receipt(repo, receipt_document(repo, **receipt_options))
+    if commit:
+        commit_all(repo, "semantic base")
+    return source, companion
+
+
+def change_semantic_html(companion: Path) -> None:
+    companion.write_text(
+        companion.read_text(encoding="utf-8").replace(
+            "We use <code", "Our team uses <code"
+        ),
+        encoding="utf-8",
+    )
+
+
+def violation_codes(result: dict[str, object]) -> set[str]:
+    return {item["code"] for item in result["violations"]}  # type: ignore[index]
 
 
 def test_edit_check_returns_policy_json_and_current_digest(tmp_path: Path) -> None:
@@ -570,3 +726,545 @@ def test_host_api_rejects_extra_arguments_with_stderr(tmp_path: Path) -> None:
     checked = json.loads(process.stdout)
     assert checked["ok"] is False
     assert checked["error"]["code"] == "invalid-request"
+
+
+def test_canonical_receipt_path_uses_the_source_relative_utf8_bytes(
+    tmp_path: Path,
+) -> None:
+    expected = (
+        "docs/sdd/html-evidence/"
+        + hashlib.sha256(SEMANTIC_SOURCE.encode("utf-8")).hexdigest()
+        + ".json"
+    )
+    assert canonical_receipt_path(SEMANTIC_SOURCE) == expected
+    japanese = "docs/adr/日本語.md"
+    assert canonical_receipt_path(japanese) == (
+        "docs/sdd/html-evidence/"
+        + hashlib.sha256(japanese.encode("utf-8")).hexdigest()
+        + ".json"
+    )
+    target = resolve_target(tmp_path, SEMANTIC_SOURCE)
+    assert target is not None
+    assert target.receipt_relative == expected
+    assert target.receipt_path == tmp_path / expected
+    for invalid in ("", "../CONTEXT.md", "/CONTEXT.md", "docs\\adr\\x.md", "docs/./x.md"):
+        with pytest.raises(PolicyInputError):
+            canonical_receipt_path(invalid)
+
+
+def test_staged_semantic_pair_with_bound_receipt_allows(tmp_path: Path) -> None:
+    init_repo(tmp_path)
+    setup_semantic(tmp_path, commit=False)
+    git(tmp_path, "add", "-A")
+
+    process = run_cli(tmp_path, "check", "--staged")
+
+    assert process.returncode == 0
+    checked = result(process)
+    assert checked["decision"] == "allow"
+    assert checked["assurance"] == "static-only"
+    assert checked["meaning_reevaluated"] is False
+    assert "static-only" in str(checked["message"])
+    assert "not re-evaluated" in str(checked["message"])
+    receipt = checked["receipts"][0]  # type: ignore[index]
+    assert receipt["status"] == "bound"
+    assert receipt["path"] == canonical_receipt_path(SEMANTIC_SOURCE)
+    assert receipt["source_digest"] == digest((tmp_path / SEMANTIC_SOURCE).read_bytes())
+    assert receipt["versions"]["recorded"] == {
+        "settings": "settings-1",
+        "rubric": "rubric-1",
+        "profile": "profile-1",
+    }
+    assert receipt["meaning_reevaluated"] is False
+
+
+def test_staged_semantic_pair_requires_the_canonical_receipt(tmp_path: Path) -> None:
+    init_repo(tmp_path)
+    setup_semantic(tmp_path, with_receipt=False, commit=False)
+    other = tmp_path / "docs/sdd/html-evidence/run-1/receipt.json"
+    other.parent.mkdir(parents=True)
+    other.write_text(
+        json.dumps(receipt_document(tmp_path)) + "\n", encoding="utf-8"
+    )
+    git(tmp_path, "add", "-A")
+
+    process = run_cli(tmp_path, "check", "--staged")
+
+    assert process.returncode == 1
+    checked = result(process)
+    assert checked["decision"] == "deny"
+    assert "receipt-missing" in violation_codes(checked)
+    assert canonical_receipt_path(SEMANTIC_SOURCE) in str(checked["message"])
+
+
+def test_staged_semantic_receipt_rejects_invalid_json_and_unknown_versions(
+    tmp_path: Path,
+) -> None:
+    init_repo(tmp_path)
+    setup_semantic(tmp_path, commit=False)
+    receipt = read_receipt(tmp_path)
+    receipt["version"] = 2
+    write_receipt(tmp_path, receipt)
+    git(tmp_path, "add", "-A")
+
+    process = run_cli(tmp_path, "check", "--staged")
+
+    assert process.returncode == 1
+    assert "receipt-version" in violation_codes(result(process))
+
+    init_repo(tmp_path)
+    setup_semantic(tmp_path, commit=False)
+    receipt_path(tmp_path).write_text("{", encoding="utf-8")
+    git(tmp_path, "add", "-A")
+
+    process = run_cli(tmp_path, "check", "--staged")
+
+    assert process.returncode == 1
+    assert "receipt-invalid-json" in violation_codes(result(process))
+
+
+def test_staged_semantic_receipt_binds_paths_and_exact_digests(tmp_path: Path) -> None:
+    init_repo(tmp_path)
+    setup_semantic(tmp_path, commit=False)
+    receipt = read_receipt(tmp_path)
+    receipt["source"]["path"] = "docs/adr/other.md"  # type: ignore[index]
+    receipt["html"]["path"] = "docs/adr/other.html"  # type: ignore[index]
+    receipt["html"]["digest"] = "sha256:" + "0" * 64  # type: ignore[index]
+    write_receipt(tmp_path, receipt)
+    git(tmp_path, "add", "-A")
+
+    process = run_cli(tmp_path, "check", "--staged")
+
+    assert process.returncode == 1
+    codes = violation_codes(result(process))
+    assert {
+        "receipt-source-path",
+        "receipt-html-path",
+        "receipt-html-digest",
+    } <= codes
+
+
+def test_staged_mode_reads_index_receipts_not_worktree_receipts(tmp_path: Path) -> None:
+    init_repo(tmp_path)
+    _source, companion = setup_semantic(tmp_path)
+    original = companion.read_text(encoding="utf-8")
+    change_semantic_html(companion)
+    receipt = receipt_document(tmp_path)
+    receipt["version"] = 2
+    receipt_path(tmp_path).write_text(json.dumps(receipt), encoding="utf-8")
+
+    process = run_cli(tmp_path, "check", "--staged")
+
+    assert process.returncode == 0
+    assert result(process)["decision"] == "allow"
+
+    git(tmp_path, "add", SEMANTIC_HTML)
+    invalid_index_receipt = receipt_document(
+        tmp_path, html_bytes=original.encode("utf-8")
+    )
+    invalid_index_receipt["version"] = 2
+    write_receipt(tmp_path, invalid_index_receipt)
+    git(tmp_path, "add", canonical_receipt_path(SEMANTIC_SOURCE))
+
+    process = run_cli(tmp_path, "check", "--staged")
+
+    assert process.returncode == 1
+    assert "receipt-version" in violation_codes(result(process))
+
+
+def test_new_worktree_receipt_is_not_accepted_for_an_older_staged_html(
+    tmp_path: Path,
+) -> None:
+    init_repo(tmp_path)
+    _source, companion = setup_semantic(tmp_path)
+    change_semantic_html(companion)
+    git(tmp_path, "add", SEMANTIC_HTML)
+    new_receipt = advance_generation(receipt_document(tmp_path))
+    write_receipt(tmp_path, new_receipt)
+
+    process = run_cli(tmp_path, "check", "--staged")
+
+    assert process.returncode == 1
+    assert "receipt-html-digest" in violation_codes(result(process))
+
+    git(tmp_path, "add", canonical_receipt_path(SEMANTIC_SOURCE))
+
+    process = run_cli(tmp_path, "check", "--staged")
+
+    assert process.returncode == 0
+    checked = result(process)
+    assert checked["decision"] == "allow"
+    assert checked["receipts"][0]["re_evaluation"] == {  # type: ignore[index]
+        "same_source": True,
+        "html_changed": True,
+        "new_generation": True,
+        "previous_generation": {"id": "generation-1", "revision": 1},
+    }
+
+
+def test_semantic_html_only_reevaluation_allows_a_new_generation(
+    tmp_path: Path,
+) -> None:
+    init_repo(tmp_path)
+    _source, companion = setup_semantic(tmp_path)
+    change_semantic_html(companion)
+    receipt = advance_generation(receipt_document(tmp_path))
+    write_receipt(tmp_path, receipt)
+    git(tmp_path, "add", SEMANTIC_HTML, canonical_receipt_path(SEMANTIC_SOURCE))
+
+    process = run_cli(tmp_path, "check", "--staged")
+
+    assert process.returncode == 0
+    checked = result(process)
+    assert checked["decision"] == "allow"
+    assert checked["receipts"][0]["re_evaluation"]["same_source"] is True  # type: ignore[index]
+    assert checked["receipts"][0]["re_evaluation"]["html_changed"] is True  # type: ignore[index]
+    assert "static-only" in str(checked["message"])
+    # The strict HTML-only contract is not weakened.
+    strict = run_cli(
+        tmp_path,
+        "validate",
+        SEMANTIC_HTML,
+    )
+    assert strict.returncode == 0
+
+
+def test_edited_old_receipt_without_a_new_generation_is_rejected(
+    tmp_path: Path,
+) -> None:
+    init_repo(tmp_path)
+    _source, companion = setup_semantic(tmp_path)
+    change_semantic_html(companion)
+    tampered = read_receipt(tmp_path)
+    tampered["html"]["digest"] = digest(companion.read_bytes())  # type: ignore[index]
+    write_receipt(tmp_path, tampered)
+    git(tmp_path, "add", SEMANTIC_HTML, canonical_receipt_path(SEMANTIC_SOURCE))
+
+    process = run_cli(tmp_path, "check", "--staged")
+
+    assert process.returncode == 1
+    assert "receipt-generation" in violation_codes(result(process))
+
+
+def test_receipt_generation_must_name_the_previous_generation_as_parent(
+    tmp_path: Path,
+) -> None:
+    init_repo(tmp_path)
+    _source, companion = setup_semantic(tmp_path)
+    change_semantic_html(companion)
+    receipt = advance_generation(read_receipt(tmp_path), parent=None)
+    write_receipt(tmp_path, receipt)
+    git(tmp_path, "add", SEMANTIC_HTML, canonical_receipt_path(SEMANTIC_SOURCE))
+
+    process = run_cli(tmp_path, "check", "--staged")
+
+    assert process.returncode == 1
+    assert "receipt-generation-parent" in violation_codes(result(process))
+
+
+def test_css_change_invalidates_receipts_and_requires_a_new_generation(
+    tmp_path: Path,
+) -> None:
+    init_repo(tmp_path)
+    setup_semantic(tmp_path)
+    (tmp_path / CSS_PATH).write_text("/* changed stylesheet */\n", encoding="utf-8")
+    git(tmp_path, "add", CSS_PATH)
+
+    process = run_cli(tmp_path, "check", "--staged")
+
+    assert process.returncode == 1
+    assert "receipt-css-digest" in violation_codes(result(process))
+
+    receipt = advance_generation(receipt_document(tmp_path))
+    write_receipt(tmp_path, receipt)
+    git(tmp_path, "add", canonical_receipt_path(SEMANTIC_SOURCE))
+
+    process = run_cli(tmp_path, "check", "--staged")
+
+    assert process.returncode == 0
+    checked = result(process)
+    assert checked["decision"] == "allow"
+    assert checked["receipts"][0]["re_evaluation"]["same_source"] is True  # type: ignore[index]
+    assert checked["receipts"][0]["re_evaluation"]["html_changed"] is False  # type: ignore[index]
+
+
+def test_partially_staged_css_and_receipt_is_rejected(tmp_path: Path) -> None:
+    init_repo(tmp_path)
+    setup_semantic(tmp_path)
+    (tmp_path / CSS_PATH).write_text("/* changed stylesheet */\n", encoding="utf-8")
+    receipt = advance_generation(receipt_document(tmp_path))
+    write_receipt(tmp_path, receipt)
+    git(tmp_path, "add", canonical_receipt_path(SEMANTIC_SOURCE))
+
+    process = run_cli(tmp_path, "check", "--staged")
+
+    assert process.returncode == 1
+    assert "receipt-css-digest" in violation_codes(result(process))
+
+
+def test_resource_fingerprints_are_bound_to_the_checked_tree(tmp_path: Path) -> None:
+    init_repo(tmp_path)
+    resource = tmp_path / "docs/sdd/assets/figure.svg"
+    resource.parent.mkdir(parents=True, exist_ok=True)
+    resource.write_text("<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>\n", encoding="utf-8")
+    setup_semantic(
+        tmp_path,
+        resources={resource.relative_to(tmp_path).as_posix(): resource.read_bytes()},
+    )
+    resource.write_text("<svg xmlns=\"http://www.w3.org/2000/svg\"><g></g></svg>\n", encoding="utf-8")
+    git(tmp_path, "add", resource.relative_to(tmp_path).as_posix())
+
+    process = run_cli(tmp_path, "check", "--staged")
+
+    assert process.returncode == 1
+    assert "receipt-resource-digest" in violation_codes(result(process))
+
+
+def test_policy_identity_and_recorded_versions_are_bound(tmp_path: Path) -> None:
+    init_repo(tmp_path)
+    setup_semantic(
+        tmp_path,
+        commit=False,
+        policy_digest="sha256:" + "0" * 64,
+        policy_version="unknown-policy",
+    )
+    git(tmp_path, "add", "-A")
+
+    process = run_cli(tmp_path, "check", "--staged")
+
+    assert process.returncode == 1
+    codes = violation_codes(result(process))
+    assert {"receipt-policy-version", "receipt-policy-digest"} <= codes
+
+    init_repo(tmp_path)
+    _source, companion = setup_semantic(tmp_path)
+    change_semantic_html(companion)
+    write_receipt(
+        tmp_path,
+        advance_generation(
+            receipt_document(
+                tmp_path, versions={"settings": "settings-2", "rubric": "rubric-1", "profile": "profile-1"}
+            )
+        ),
+    )
+    git(tmp_path, "add", SEMANTIC_HTML, canonical_receipt_path(SEMANTIC_SOURCE))
+    target = resolve_target(tmp_path, SEMANTIC_SOURCE)
+    assert target is not None
+    violations, evidence = bind_receipt(
+        target,
+        receipt_bytes=receipt_path(tmp_path).read_bytes(),
+        source_bytes=(tmp_path / SEMANTIC_SOURCE).read_bytes(),
+        html_bytes=companion.read_bytes(),
+        expected_versions={"settings": "settings-1", "rubric": "rubric-1", "profile": "profile-1"},
+        baseline_receipt=json.dumps(read_receipt(tmp_path)).encode("utf-8"),
+    )
+    assert "receipt-settings-version" in {item["code"] for item in violations}
+    assert evidence["versions"]["recorded"]["profile"] == "profile-1"  # type: ignore[index]
+
+
+def test_profile_or_rubric_changes_require_a_new_settings_version(
+    tmp_path: Path,
+) -> None:
+    init_repo(tmp_path)
+    _source, companion = setup_semantic(tmp_path)
+    change_semantic_html(companion)
+    receipt = advance_generation(
+        receipt_document(
+            tmp_path,
+            versions={
+                "settings": "settings-1",
+                "rubric": "rubric-1",
+                "profile": "profile-2",
+            },
+        )
+    )
+    write_receipt(tmp_path, receipt)
+    git(tmp_path, "add", SEMANTIC_HTML, canonical_receipt_path(SEMANTIC_SOURCE))
+
+    process = run_cli(tmp_path, "check", "--staged")
+
+    assert process.returncode == 1
+    assert "receipt-profile-version" in violation_codes(result(process))
+
+    receipt["versions"] = {  # type: ignore[index]
+        "settings": "settings-2",
+        "rubric": "rubric-1",
+        "profile": "profile-2",
+    }
+    write_receipt(tmp_path, receipt)
+    git(tmp_path, "add", canonical_receipt_path(SEMANTIC_SOURCE))
+
+    process = run_cli(tmp_path, "check", "--staged")
+
+    assert process.returncode == 0
+
+
+def test_receipt_verification_and_condition_decisions_must_pass(tmp_path: Path) -> None:
+    init_repo(tmp_path)
+    setup_semantic(
+        tmp_path,
+        commit=False,
+        verification={
+            "result": "fail",
+            "checks": [
+                {"name": "static", "decision": "fail", "evidence": ["run-1/static.json"]}
+            ],
+        },
+        conditions=[
+            {
+                "id": "information",
+                "decision": "unmet",
+                "evidence": ["run-1/information.json"],
+            },
+            {"id": "support", "decision": "met", "evidence": ["run-1/support.json"]},
+            {"id": "usability", "decision": "met", "evidence": ["run-1/usability.json"]},
+            {"id": "render", "decision": "met", "evidence": ["run-1/render.json"]},
+        ],
+    )
+    git(tmp_path, "add", "-A")
+
+    process = run_cli(tmp_path, "check", "--staged")
+
+    assert process.returncode == 1
+    codes = violation_codes(result(process))
+    assert {"receipt-verification", "receipt-check", "receipt-condition"} <= codes
+
+
+def test_semantic_pair_rename_requires_a_receipt_for_the_new_path(
+    tmp_path: Path,
+) -> None:
+    init_repo(tmp_path)
+    source, companion = setup_semantic(tmp_path)
+    new_source = source.with_name("0002-queue-choice.md")
+    new_html = companion.with_name("0002-queue-choice.html")
+    source.rename(new_source)
+    text = companion.read_text(encoding="utf-8").replace(SEMANTIC_SOURCE, "docs/adr/0002-queue-choice.md")
+    new_html.write_text(text, encoding="utf-8")
+    companion.unlink()
+    git(tmp_path, "add", "-A")
+
+    process = run_cli(tmp_path, "check", "--staged")
+
+    assert process.returncode == 1
+    assert "receipt-missing" in violation_codes(result(process))
+
+    new_relative = "docs/adr/0002-queue-choice.md"
+    write_receipt(
+        tmp_path,
+        receipt_document(tmp_path, new_relative),
+        source_relative=new_relative,
+    )
+    git(tmp_path, "add", canonical_receipt_path(new_relative))
+
+    process = run_cli(tmp_path, "check", "--staged")
+
+    assert process.returncode == 0
+    assert result(process)["decision"] == "allow"
+
+
+def test_semantic_delete_contract_and_orphaned_artifacts_are_not_exempt(
+    tmp_path: Path,
+) -> None:
+    init_repo(tmp_path)
+    source, companion = setup_semantic(tmp_path)
+    source.unlink()
+    git(tmp_path, "add", "-A")
+
+    process = run_cli(tmp_path, "check", "--staged")
+
+    assert process.returncode == 1
+    assert "one-sided-delete" in violation_codes(result(process))
+
+    companion.unlink()
+    git(tmp_path, "add", "-A")
+
+    process = run_cli(tmp_path, "check", "--staged")
+
+    assert process.returncode == 0
+    assert receipt_path(tmp_path).exists()
+
+
+def test_check_base_binds_receipts_against_the_merge_base(tmp_path: Path) -> None:
+    init_repo(tmp_path)
+    _source, companion = setup_semantic(tmp_path, commit=False)
+    commit_all(tmp_path, "semantic base")
+    base = git(tmp_path, "rev-parse", "HEAD").strip()
+    change_semantic_html(companion)
+    write_receipt(tmp_path, advance_generation(receipt_document(tmp_path)))
+    commit_all(tmp_path, "semantic re-evaluation")
+
+    process = run_cli(tmp_path, "check", "--base", base)
+
+    assert process.returncode == 0
+    assert result(process)["decision"] == "allow"
+
+    companion.write_text(
+        companion.read_text(encoding="utf-8").replace(
+            "Our team uses", "The team uses"
+        ),
+        encoding="utf-8",
+    )
+    base_generation = receipt_document(tmp_path)
+    write_receipt(tmp_path, base_generation)
+    commit_all(tmp_path, "edited receipt without a new generation")
+
+    process = run_cli(tmp_path, "check", "--base", base)
+
+    assert process.returncode == 1
+    assert "receipt-generation" in violation_codes(result(process))
+
+
+def test_offline_check_opens_no_network_and_loads_no_model_client(
+    tmp_path: Path,
+) -> None:
+    init_repo(tmp_path)
+    setup_semantic(tmp_path, commit=False)
+    git(tmp_path, "add", "-A")
+    script = """
+import json
+import sys
+
+events = []
+
+def audit(event, args):
+    if event.startswith(("socket.", "urllib.", "http.")):
+        events.append(event)
+
+sys.addaudithook(audit)
+sys.path.insert(0, sys.argv[1])
+from sddlib.html_docs import main
+
+code = main(["check", "--staged"])
+models = sorted(
+    name
+    for name in ("openai", "anthropic", "requests", "httpx", "urllib.request")
+    if name in sys.modules
+)
+print(json.dumps({"code": code, "events": events, "models": models}))
+"""
+    process = subprocess.run(
+        [sys.executable, "-c", script, str(ROOT / "scripts")],
+        cwd=tmp_path,
+        text=True,
+        capture_output=True,
+    )
+
+    assert process.returncode == 0, process.stderr
+    summary = json.loads(process.stdout.splitlines()[-1])
+    assert summary["code"] == 0
+    assert summary["events"] == []
+    assert summary["models"] == []
+
+
+def test_validate_remains_a_structural_check_without_a_receipt(
+    tmp_path: Path,
+) -> None:
+    init_repo(tmp_path)
+    setup_semantic(tmp_path, with_receipt=False, commit=False)
+
+    process = run_cli(tmp_path, "validate", SEMANTIC_HTML)
+
+    assert process.returncode == 0
+    checked = result(process)
+    assert checked["decision"] == "allow"
+    assert checked["violations"] == []

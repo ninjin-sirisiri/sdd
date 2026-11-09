@@ -1,22 +1,30 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 import hashlib
 from html.parser import HTMLParser
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 from typing import TypeAlias
 from urllib.parse import unquote, urlsplit
 
-from sddlib.html_units import SEMANTIC_CONTRACT, STRICT_CONTRACT
+from sddlib.html_units import (
+    SEMANTIC_CONTRACT,
+    STRICT_CONTRACT,
+    UnitSchemaError,
+    validate_receipt,
+)
 
 
 PathInput: TypeAlias = str | os.PathLike[str]
 PolicyResult: TypeAlias = dict[str, object]
+
+RECEIPT_DIRECTORY = "docs/sdd/html-evidence"
+SHARED_CSS = "docs/sdd/assets/sdd.css"
 
 _TARGET_DIRECTORIES = {
     "specs": "spec",
@@ -71,6 +79,16 @@ class Target:
     def html_relative(self) -> str:
         return self.companion_relative
 
+    @property
+    def receipt_relative(self) -> str:
+        """Canonical evaluation-receipt path for this Target source."""
+
+        return canonical_receipt_path(self.source_relative)
+
+    @property
+    def receipt_path(self) -> Path:
+        return self.repository_root / self.receipt_relative
+
 
 class PolicyInputError(ValueError):
     """An invalid policy argument that callers should map to exit code 2."""
@@ -121,6 +139,36 @@ def _result(
         "paths": list(paths),
         "expected_digests": dict(expected_digests or {}),
     }
+
+
+def _canonical_relative(value: object, label: str) -> str:
+    """Return one canonical repository-relative POSIX path or raise."""
+
+    if not isinstance(value, str) or not value:
+        raise PolicyInputError(f"{label} must be a non-empty relative path")
+    if "\x00" in value or "\\" in value:
+        raise PolicyInputError(f"{label} must be a canonical POSIX relative path")
+    path = PurePosixPath(value)
+    if path.is_absolute() or str(path) != value:
+        raise PolicyInputError(f"{label} must be a canonical repository-relative path")
+    if any(part in {"", ".", ".."} for part in path.parts):
+        raise PolicyInputError(f"{label} must not contain '.' or '..' segments")
+    return value
+
+
+def canonical_receipt_path(source_relative: str) -> str:
+    """Derive the version 1 receipt path from one canonical Target source path.
+
+    The filename is the SHA-256 of the canonical repository-relative path as
+    UTF-8 bytes, with a JSON suffix, under ``docs/sdd/html-evidence``.  The
+    source bytes and HTML digest live inside the receipt; the filename is
+    derived only from the source path so a receipt can be looked up without
+    trusting caller input.
+    """
+
+    relative = _canonical_relative(source_relative, "source path")
+    digest = hashlib.sha256(relative.encode("utf-8")).hexdigest()
+    return f"{RECEIPT_DIRECTORY}/{digest}.json"
 
 
 def _repository_root(repo_root: PathInput) -> Path:
@@ -335,9 +383,13 @@ def _content_bytes(
     path: Path,
     relative: str,
     file_contents: Mapping[str, bytes] | None,
+    *,
+    authoritative: bool = False,
 ) -> bytes:
     if file_contents is not None and relative in file_contents:
         return file_contents[relative]
+    if authoritative:
+        raise FileNotFoundError(relative)
     return path.read_bytes()
 
 
@@ -1143,8 +1195,15 @@ def validate_html(
     source_path: PathInput,
     companion_path: PathInput | None = None,
     file_contents: Mapping[str, bytes] | None = None,
+    *,
+    authoritative_contents: bool = False,
 ) -> PolicyResult:
-    """Validate one authored HTML companion against its canonical Markdown source."""
+    """Validate one authored HTML companion against its canonical Markdown source.
+
+    ``authoritative_contents`` makes ``file_contents`` the complete read set.
+    A missing key then means the file is unavailable instead of falling back to
+    the worktree, which keeps staged checks from silently mixing trees.
+    """
 
     root = _repository_root(repo_root)
     target = _target_from_relative(root, _path_and_relative(root, source_path)[1])
@@ -1168,7 +1227,10 @@ def validate_html(
     source_available = True
     try:
         source_bytes = _content_bytes(
-            target.source_path, target.source_relative, file_contents
+            target.source_path,
+            target.source_relative,
+            file_contents,
+            authoritative=authoritative_contents,
         )
     except (FileNotFoundError, IsADirectoryError, OSError):
         source_available = False
@@ -1184,7 +1246,10 @@ def validate_html(
 
     try:
         html_bytes = _content_bytes(
-            target.companion_path, target.companion_relative, file_contents
+            target.companion_path,
+            target.companion_relative,
+            file_contents,
+            authoritative=authoritative_contents,
         )
     except (FileNotFoundError, IsADirectoryError, OSError):
         violations.append(_issue("companion-missing", f"HTML companion {target.companion_relative} is unavailable.", source_relative))
@@ -1639,18 +1704,438 @@ def _target_role(root: Path, raw_path: str) -> tuple[Target, str] | None:
     return target, role
 
 
+def _read_relative(
+    root: Path,
+    relative: str,
+    file_contents: Mapping[str, bytes] | None,
+    read_blob: Callable[[str], bytes | None] | None,
+) -> bytes | None:
+    """Read one tree entry, preferring the explicit read set over the worktree."""
+
+    if file_contents is not None and relative in file_contents:
+        return file_contents[relative]
+    if read_blob is not None:
+        return read_blob(relative)
+    try:
+        return (root / relative).read_bytes()
+    except (FileNotFoundError, IsADirectoryError, OSError):
+        return None
+
+
+def _canonical_json(value: object) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _parse_receipt_bytes(
+    receipt_bytes: bytes,
+    receipt_relative: str,
+    source_relative: str,
+) -> tuple[dict[str, object] | None, list[dict[str, str]]]:
+    try:
+        text = receipt_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        return None, [
+            _issue(
+                "receipt-invalid-json",
+                f"Receipt {receipt_relative} is not UTF-8 JSON: {exc}",
+                source_relative,
+            )
+        ]
+    try:
+        value = json.loads(text)
+    except json.JSONDecodeError as exc:
+        return None, [
+            _issue(
+                "receipt-invalid-json",
+                f"Receipt {receipt_relative} is not valid JSON: {exc}",
+                source_relative,
+            )
+        ]
+    if not isinstance(value, dict):
+        return None, [
+            _issue(
+                "receipt-invalid-json",
+                f"Receipt {receipt_relative} must be a JSON object.",
+                source_relative,
+            )
+        ]
+    try:
+        return validate_receipt(value), []
+    except UnitSchemaError as exc:
+        code = "receipt-version" if exc.path == "version" else "receipt-schema"
+        return None, [
+            _issue(
+                code,
+                f"Receipt {receipt_relative} does not match the version 1 "
+                f"receipt schema: {exc}",
+                source_relative,
+            )
+        ]
+
+
+def bind_receipt(
+    target: Target,
+    *,
+    receipt_bytes: bytes | None,
+    source_bytes: bytes,
+    html_bytes: bytes,
+    file_contents: Mapping[str, bytes] | None = None,
+    read_blob: Callable[[str], bytes | None] | None = None,
+    baseline_receipt: bytes | None = None,
+    expected_versions: Mapping[str, str] | None = None,
+) -> tuple[list[dict[str, str]], dict[str, object]]:
+    """Bind a semantic receipt to exact artifacts, inputs, policy, and generation.
+
+    The check is static.  It verifies that the receipt names the exact source
+    and HTML bytes, that every CSS and resource fingerprint matches the checked
+    tree, that the policy identity matches this implementation, that settings,
+    rubric, and profile identities are present (and equal to optional expected
+    values), that verification and all four condition decisions pass, and that
+    a change to the receipt or artifacts advances the generation chain.
+    """
+
+    root = target.repository_root
+    source_relative = target.source_relative
+    html_relative = target.companion_relative
+    receipt_relative = target.receipt_relative
+    violations: list[dict[str, str]] = []
+    evidence: dict[str, object] = {
+        "path": receipt_relative,
+        "source": source_relative,
+        "html": html_relative,
+        "status": "missing",
+        "assurance": "static-only",
+        "meaning_reevaluated": False,
+        "limitations": [
+            "Receipt binding checks structure, exact digests, fingerprints, and recorded identities only.",
+            "It does not authenticate the receipt, re-run H2, or re-evaluate meaning or image quality.",
+        ],
+    }
+    if receipt_bytes is None:
+        violations.append(
+            _issue(
+                "receipt-missing",
+                f"Semantic companion {html_relative} requires an evaluation "
+                f"receipt at {receipt_relative}.",
+                source_relative,
+            )
+        )
+        return violations, evidence
+
+    receipt, parse_violations = _parse_receipt_bytes(
+        receipt_bytes, receipt_relative, source_relative
+    )
+    if receipt is None:
+        evidence["status"] = "invalid"
+        return parse_violations, evidence
+
+    source = receipt["source"]
+    html = receipt["html"]
+    source_digest = f"sha256:{hashlib.sha256(source_bytes).hexdigest()}"
+    html_digest = f"sha256:{hashlib.sha256(html_bytes).hexdigest()}"
+    if source["path"] != source_relative:
+        violations.append(
+            _issue(
+                "receipt-source-path",
+                f"Receipt source path {source['path']!r} does not match "
+                f"{source_relative!r}.",
+                source_relative,
+            )
+        )
+    if source["digest"] != source_digest:
+        violations.append(
+            _issue(
+                "receipt-source-digest",
+                "Receipt source digest does not match the exact Markdown bytes.",
+                source_relative,
+            )
+        )
+    if html["path"] != html_relative:
+        violations.append(
+            _issue(
+                "receipt-html-path",
+                f"Receipt HTML path {html['path']!r} does not match "
+                f"{html_relative!r}.",
+                source_relative,
+            )
+        )
+    if html["digest"] != html_digest:
+        violations.append(
+            _issue(
+                "receipt-html-digest",
+                "Receipt HTML digest does not match the exact companion bytes.",
+                source_relative,
+            )
+        )
+
+    def bind_entries(
+        entries: object,
+        role: str,
+    ) -> list[dict[str, object]]:
+        results: list[dict[str, object]] = []
+        for entry in entries:  # type: ignore[union-attr]
+            raw_path = entry["path"]  # type: ignore[index]
+            try:
+                relative = _canonical_relative(raw_path, f"receipt {role} path")
+            except PolicyInputError as exc:
+                violations.append(
+                    _issue(f"receipt-{role}-path", str(exc), source_relative)
+                )
+                continue
+            digest = entry["digest"]  # type: ignore[index]
+            data = _read_relative(root, relative, file_contents, read_blob)
+            if data is None:
+                violations.append(
+                    _issue(
+                        f"receipt-{role}-input-missing",
+                        f"Receipt {role} input {relative} is unavailable in the "
+                        "checked tree.",
+                        source_relative,
+                    )
+                )
+                results.append(
+                    {
+                        "path": relative,
+                        "digest": digest,
+                        "supplied_digest": None,
+                        "match": False,
+                    }
+                )
+                continue
+            supplied = f"sha256:{hashlib.sha256(data).hexdigest()}"
+            matched = supplied == digest
+            if not matched:
+                violations.append(
+                    _issue(
+                        f"receipt-{role}-digest",
+                        f"Receipt {role} digest for {relative} does not match the "
+                        "checked bytes.",
+                        source_relative,
+                    )
+                )
+            results.append(
+                {
+                    "path": relative,
+                    "digest": digest,
+                    "supplied_digest": supplied,
+                    "match": matched,
+                }
+            )
+        return results
+
+    receipt_inputs = receipt["inputs"]
+    css = bind_entries(receipt_inputs["css"], "css")  # type: ignore[index]
+    resources = bind_entries(receipt_inputs["resources"], "resource")  # type: ignore[index]
+    if SHARED_CSS not in {entry["path"] for entry in css}:
+        violations.append(
+            _issue(
+                "receipt-css-missing",
+                f"Receipt does not fingerprint the shared stylesheet {SHARED_CSS}.",
+                source_relative,
+            )
+        )
+
+    try:
+        from sddlib.html_host_api import POLICY_VERSION_ALIASES, policy_identity
+    except ImportError as exc:  # pragma: no cover - installation failure
+        raise PolicyInputError(
+            f"cannot load the canonical policy identity: {exc}"
+        ) from exc
+    identity = policy_identity()
+    policy = receipt_inputs["policy"]  # type: ignore[index]
+    version_ok = policy["version"] in POLICY_VERSION_ALIASES  # type: ignore[index]
+    if not version_ok:
+        violations.append(
+            _issue(
+                "receipt-policy-version",
+                f"Receipt policy version {policy['version']!r} is not accepted "  # type: ignore[index]
+                f"by {identity['version']!r}.",
+                source_relative,
+            )
+        )
+    digest_ok = policy["digest"] == identity["digest"]  # type: ignore[index]
+    if not digest_ok:
+        violations.append(
+            _issue(
+                "receipt-policy-digest",
+                "Receipt policy digest does not match this policy implementation.",
+                source_relative,
+            )
+        )
+
+    versions = receipt["versions"]
+    identities: dict[str, str] = {}
+    for name in ("settings", "rubric", "profile"):
+        value = versions[name]  # type: ignore[index]
+        identities[name] = value
+        expected = (expected_versions or {}).get(name)
+        if expected is not None and value != expected:
+            violations.append(
+                _issue(
+                    f"receipt-{name}-version",
+                    f"Receipt {name} version {value!r} does not match the "
+                    f"expected identity {expected!r}.",
+                    source_relative,
+                )
+            )
+
+    verification = receipt["verification"]
+    checks: dict[str, object] = {}
+    if verification["result"] != "pass":  # type: ignore[index]
+        violations.append(
+            _issue(
+                "receipt-verification",
+                "Receipt verification result is not pass.",
+                source_relative,
+            )
+        )
+    for check in verification["checks"]:  # type: ignore[index]
+        checks[check["name"]] = check["decision"]  # type: ignore[index]
+        if check["decision"] != "pass":  # type: ignore[index]
+            violations.append(
+                _issue(
+                    "receipt-check",
+                    f"Receipt verification check {check['name']!r} is "  # type: ignore[index]
+                    f"{check['decision']!r}, not pass.",  # type: ignore[index]
+                    source_relative,
+                )
+            )
+
+    conditions: dict[str, object] = {}
+    for condition in receipt["conditions"]:  # type: ignore[index]
+        conditions[condition["id"]] = condition["decision"]  # type: ignore[index]
+        if condition["decision"] != "met":  # type: ignore[index]
+            violations.append(
+                _issue(
+                    "receipt-condition",
+                    f"Receipt condition {condition['id']!r} is "  # type: ignore[index]
+                    f"{condition['decision']!r}, not met.",  # type: ignore[index]
+                    source_relative,
+                )
+            )
+
+    generation = receipt["generation"]
+    generation_evidence = {
+        "id": generation["id"],
+        "revision": generation["revision"],
+        "parent": generation["parent"],
+        "job": generation["job"],
+        "cycle": generation["cycle"],
+    }
+    re_evaluation: dict[str, object] = {
+        "same_source": None,
+        "html_changed": None,
+        "new_generation": None,
+        "previous_generation": None,
+    }
+    if baseline_receipt is not None:
+        baseline, _baseline_violations = _parse_receipt_bytes(
+            baseline_receipt, receipt_relative, source_relative
+        )
+        if baseline is not None:
+            previous = baseline["generation"]
+            same_source = baseline["source"]["digest"] == source["digest"]  # type: ignore[index]
+            same_html = baseline["html"]["digest"] == html["digest"]  # type: ignore[index]
+            receipt_changed = _canonical_json(receipt) != _canonical_json(baseline)
+            new_generation = (
+                generation["id"] != previous["id"]  # type: ignore[index]
+                and generation["revision"] > previous["revision"]  # type: ignore[operator]
+            )
+            re_evaluation = {
+                "same_source": same_source,
+                "html_changed": not same_html,
+                "new_generation": new_generation if receipt_changed else None,
+                "previous_generation": {
+                    "id": previous["id"],
+                    "revision": previous["revision"],
+                },
+            }
+            if receipt_changed:
+                if not new_generation:
+                    violations.append(
+                        _issue(
+                            "receipt-generation",
+                            f"Receipt {receipt_relative} changed but does not "
+                            f"advance beyond generation {previous['id']!r} "
+                            f"revision {previous['revision']!r}.",
+                            source_relative,
+                        )
+                    )
+                elif generation["parent"] != previous["id"]:
+                    violations.append(
+                        _issue(
+                            "receipt-generation-parent",
+                            f"Receipt generation {generation['id']!r} must name "
+                            f"{previous['id']!r} as its parent.",
+                            source_relative,
+                        )
+                    )
+                previous_versions = baseline["versions"]  # type: ignore[index]
+                if previous_versions["settings"] == identities["settings"]:
+                    for name in ("profile", "rubric"):
+                        if previous_versions[name] != identities[name]:
+                            violations.append(
+                                _issue(
+                                    f"receipt-{name}-version",
+                                    f"Receipt {name} version changed without a "
+                                    "new settings version.",
+                                    source_relative,
+                                )
+                            )
+
+    h2 = receipt["h2"]
+    evidence.update(
+        {
+            "status": "deny" if violations else "bound",
+            "source_digest": source_digest,
+            "html_digest": html_digest,
+            "css": css,
+            "resources": resources,
+            "policy": {
+                "version": policy["version"],
+                "digest": policy["digest"],
+                "expected_version": identity["version"],
+                "expected_digest": identity["digest"],
+                "match": version_ok and digest_ok,
+            },
+            "versions": {
+                "recorded": identities,
+                "expected": dict(expected_versions or {}),
+                "verified_against_host": False,
+            },
+            "generation": generation_evidence,
+            "re_evaluation": re_evaluation,
+            "h2": {"reference": h2["reference"], "purpose": h2["purpose"]},
+            "verification": {
+                "result": verification["result"],
+                "checks": checks,
+            },
+            "conditions": conditions,
+        }
+    )
+    return violations, evidence
+
+
 def check_freshness(
     repo_root: PathInput,
     changes: Iterable[GitChange],
     bootstrap_paths: Iterable[PathInput] = (),
     file_contents: Mapping[str, bytes] | None = None,
+    *,
+    read_blob: Callable[[str], bytes | None] | None = None,
+    companions: Iterable[str] | None = None,
+    baseline_receipts: Mapping[str, bytes] | None = None,
+    expected_versions: Mapping[str, str] | None = None,
 ) -> PolicyResult:
-    """Check changed target pairs using current source and companion bytes.
+    """Check changed target pairs and semantic receipt binding.
 
     ``changes`` contains only Git status information. It identifies which pairs
-    need checking; ``validate_html`` supplies all freshness and document
-    evidence from the current checkout. ``bootstrap_paths`` explicitly permits
-    HTML-only migration for the named Target Markdown documents.
+    need checking; ``read_blob`` supplies the authoritative tree bytes (the
+    Git index for staged checks) and never falls back to the worktree when it
+    is provided. ``companions`` names Target companions in that tree so every
+    semantic document can be checked for a matching receipt even when it is
+    not part of the diff. ``bootstrap_paths`` explicitly permits HTML-only
+    migration for the named Target Markdown documents.
     """
 
     root = _repository_root(repo_root)
@@ -1702,6 +2187,53 @@ def check_freshness(
     warnings: list[dict[str, str]] = []
     expected_digests: dict[str, str] = {}
     affected_paths: list[str] = []
+    receipt_evidence: list[dict[str, object]] = []
+    checked_receipts = False
+
+    def read_tree(relative: str) -> bytes | None:
+        return _read_relative(root, relative, file_contents, read_blob)
+
+    def contents_for(
+        source_relative: str,
+        companion_relative: str,
+        source_bytes: bytes | None,
+        html_bytes: bytes | None,
+    ) -> dict[str, bytes]:
+        contents = dict(file_contents or {})
+        if source_bytes is not None:
+            contents[source_relative] = source_bytes
+        if html_bytes is not None:
+            contents[companion_relative] = html_bytes
+        return contents
+
+    def is_semantic(html_bytes: bytes | None) -> bool:
+        if html_bytes is None:
+            return False
+        from sddlib.html_semantic import detect_contract
+
+        return detect_contract(parse_html(html_bytes)).contract == SEMANTIC_CONTRACT
+
+    def check_receipt(
+        target: Target,
+        source_bytes: bytes,
+        html_bytes: bytes,
+    ) -> None:
+        nonlocal checked_receipts
+        receipt_path = target.receipt_relative
+        receipt_bytes = read_tree(receipt_path)
+        binding_violations, binding = bind_receipt(
+            target,
+            receipt_bytes=receipt_bytes,
+            source_bytes=source_bytes,
+            html_bytes=html_bytes,
+            file_contents=file_contents,
+            read_blob=read_blob,
+            baseline_receipt=(baseline_receipts or {}).get(receipt_path),
+            expected_versions=expected_versions,
+        )
+        violations.extend(binding_violations)
+        receipt_evidence.append(binding)
+        checked_receipts = True
 
     move_groups: dict[tuple[str, str], set[str]] = {}
     move_targets: dict[tuple[str, str], tuple[Target, Target]] = {}
@@ -1730,14 +2262,12 @@ def check_freshness(
         target = pair.target
         companion_relative = target.companion_relative
         affected_paths.extend((source_relative, companion_relative))
-        try:
-            source_digest = hashlib.sha256(
-                _content_bytes(
-                    target.source_path, target.source_relative, file_contents
-                )
-            ).hexdigest()
-        except (FileNotFoundError, IsADirectoryError, OSError):
-            source_digest = None
+        source_bytes = read_tree(source_relative)
+        source_digest = (
+            hashlib.sha256(source_bytes).hexdigest()
+            if source_bytes is not None
+            else None
+        )
         if source_digest is not None:
             expected_digests[companion_relative] = f"sha256:{source_digest}"
 
@@ -1758,13 +2288,36 @@ def check_freshness(
                 )
             )
             continue
-        if pair.roles != {"source", "companion"}:
-            if pair.roles == {"companion"} and source_relative in bootstrap:
+
+        html_bytes = read_tree(companion_relative)
+        if pair.roles == {"companion"}:
+            if is_semantic(html_bytes):
                 validation = validate_html(
                     root,
                     target.source_path,
                     target.companion_path,
-                    file_contents=file_contents,
+                    file_contents=contents_for(
+                        source_relative, companion_relative, source_bytes, html_bytes
+                    ),
+                    authoritative_contents=read_blob is not None,
+                )
+                expected_digests.update(
+                    validation["expected_digests"]  # type: ignore[arg-type]
+                )
+                violations.extend(validation["violations"])  # type: ignore[arg-type]
+                warnings.extend(validation["warnings"])  # type: ignore[arg-type]
+                if source_bytes is not None and html_bytes is not None:
+                    check_receipt(target, source_bytes, html_bytes)
+                continue
+            if source_relative in bootstrap:
+                validation = validate_html(
+                    root,
+                    target.source_path,
+                    target.companion_path,
+                    file_contents=contents_for(
+                        source_relative, companion_relative, source_bytes, html_bytes
+                    ),
+                    authoritative_contents=read_blob is not None,
                 )
                 expected_digests.update(
                     validation["expected_digests"]  # type: ignore[arg-type]
@@ -1772,6 +2325,8 @@ def check_freshness(
                 violations.extend(validation["violations"])  # type: ignore[arg-type]
                 warnings.extend(validation["warnings"])  # type: ignore[arg-type]
                 continue
+
+        if pair.roles != {"source", "companion"}:
             if pair.roles == {"source"}:
                 code = "markdown-only"
                 message = (
@@ -1791,25 +2346,74 @@ def check_freshness(
             root,
             target.source_path,
             target.companion_path,
-            file_contents=file_contents,
+            file_contents=contents_for(
+                source_relative, companion_relative, source_bytes, html_bytes
+            ),
+            authoritative_contents=read_blob is not None,
         )
         expected_digests.update(validation["expected_digests"])  # type: ignore[arg-type]
         violations.extend(validation["violations"])  # type: ignore[arg-type]
         warnings.extend(validation["warnings"])  # type: ignore[arg-type]
+        if (
+            validation.get("contract") == SEMANTIC_CONTRACT
+            and source_bytes is not None
+            and html_bytes is not None
+        ):
+            check_receipt(target, source_bytes, html_bytes)
+
+    checked_sources = set(pairs)
+    for companion_relative in sorted(set(companions or ())):
+        target = _target_from_relative(root, Path(companion_relative))
+        if target is None or target.companion_relative != companion_relative:
+            continue
+        if target.source_relative in checked_sources:
+            continue
+        source_bytes = read_tree(target.source_relative)
+        html_bytes = read_tree(companion_relative)
+        if source_bytes is None or html_bytes is None:
+            continue
+        if not is_semantic(html_bytes):
+            continue
+        validation = validate_html(
+            root,
+            target.source_path,
+            target.companion_path,
+            file_contents=contents_for(
+                target.source_relative,
+                companion_relative,
+                source_bytes,
+                html_bytes,
+            ),
+            authoritative_contents=read_blob is not None,
+        )
+        violations.extend(validation["violations"])  # type: ignore[arg-type]
+        warnings.extend(validation["warnings"])  # type: ignore[arg-type]
+        check_receipt(target, source_bytes, html_bytes)
+        affected_paths.extend((target.source_relative, companion_relative))
 
     unique_paths = list(dict.fromkeys(affected_paths))
     if violations:
         message = "HTML freshness check failed: " + " ".join(
             item["message"] for item in violations
         )
+        if checked_receipts:
+            message += (
+                " Receipt binding is static-only; meaning and image quality "
+                "were not re-evaluated."
+            )
         decision = "deny"
     elif unique_paths:
         message = "All affected HTML companions are fresh and valid."
+        if checked_receipts:
+            message += (
+                " Receipt binding is static-only; meaning and image quality "
+                "were not re-evaluated."
+            )
         decision = "allow"
     else:
         message = "No synchronized target documents are affected."
         decision = "allow"
-    return _freshness_result(
+    result = _freshness_result(
         decision,
         message,
         unique_paths,
@@ -1817,6 +2421,11 @@ def check_freshness(
         violations,
         warnings,
     )
+    if receipt_evidence:
+        result["receipts"] = receipt_evidence
+        result["assurance"] = "static-only"
+        result["meaning_reevaluated"] = False
+    return result
 
 
 def bootstrap_documents(

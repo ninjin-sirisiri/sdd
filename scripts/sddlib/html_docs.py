@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 import json
 from pathlib import Path
 import subprocess
@@ -7,6 +8,7 @@ import sys
 from typing import NoReturn
 
 from sddlib.html_policy import (
+    RECEIPT_DIRECTORY,
     GitChange,
     PolicyInputError,
     bootstrap_documents,
@@ -212,40 +214,147 @@ def _git_changes(root: Path, mode: str, reference: str | None, paths: list[str])
     return _parse_git_changes(completed.stdout)
 
 
-def _git_index_contents(root: Path, changes: list[GitChange]) -> dict[str, bytes]:
-    deleted = {
-        change.paths[0]
-        for change in changes
-        if change.status[:1] == "D" or change.status[:1] == "R"
-    }
-    paths = sorted({path for change in changes for path in change.paths})
-    contents: dict[str, bytes] = {}
-    for path in paths:
-        completed = subprocess.run(
-            ["git", "show", f":{path}"],
-            cwd=root,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+def _git_show(root: Path, spec: str) -> bytes | None:
+    """Read one Git object, returning ``None`` when the path is not present."""
+
+    completed = subprocess.run(
+        ["git", "show", spec],
+        cwd=root,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if completed.returncode == 0:
+        return completed.stdout
+    detail = completed.stderr.decode("utf-8", errors="replace").strip()
+    if any(
+        marker in detail
+        for marker in (
+            "does not exist",
+            "not in the index",
+            "exists on disk",
+            "invalid object name",
+            "unknown revision",
         )
-        if completed.returncode == 0:
-            contents[path] = completed.stdout
-        elif path not in deleted:
-            detail = completed.stderr.decode("utf-8", errors="replace").strip()
-            raise CLIInputError(
-                f"cannot read staged blob {path}: {detail or 'unknown error'}"
+    ):
+        return None
+    raise CLIInputError(f"cannot read Git object {spec}: {detail or 'unknown error'}")
+
+
+class _GitBlobReader:
+    """Authoritative staged-tree reader that never falls back to the worktree."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self.cache: dict[str, bytes | None] = {}
+
+    def read(self, relative: str) -> bytes | None:
+        if relative not in self.cache:
+            self.cache[relative] = _git_show(self.root, f":{relative}")
+        return self.cache[relative]
+
+
+def _git_paths(root: Path, spec: str) -> list[str]:
+    completed = subprocess.run(
+        ["git", "ls-files", "-z"] if spec == "index" else ["git", "ls-tree", "-r", "-z", "--name-only", spec],
+        cwd=root,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if completed.returncode != 0:
+        detail = completed.stderr.decode("utf-8", errors="replace").strip()
+        raise CLIInputError(
+            f"git cannot list {spec} paths: {detail or 'unknown error'}"
+        )
+    return [
+        value.decode("utf-8")
+        for value in completed.stdout.split(b"\0")
+        if value
+    ]
+
+
+def _target_companions(root: Path, paths: Iterable[str]) -> list[str]:
+    companions: set[str] = set()
+    for path in paths:
+        if not isinstance(path, str) or not path.endswith(".html"):
+            continue
+        try:
+            target = resolve_target(root, path)
+        except (PolicyInputError, OSError, RuntimeError):
+            continue
+        if target is not None and target.companion_relative == path:
+            companions.add(path)
+    return sorted(companions)
+
+
+def _git_index_companions(root: Path) -> list[str]:
+    return _target_companions(root, _git_paths(root, "index"))
+
+
+def _worktree_companions(root: Path) -> list[str]:
+    paths: list[str] = []
+    candidates = ["CONTEXT.html"]
+    for directory in ("docs/adr", "docs/sdd/specs", "docs/sdd/plans"):
+        folder = root / directory
+        if folder.is_dir():
+            candidates.extend(
+                path.relative_to(root).as_posix()
+                for path in sorted(folder.glob("*.html"))
+                if path.is_file()
             )
-    return contents
+    return _target_companions(root, candidates)
+
+
+def _baseline_revision(root: Path, mode: str, reference: str | None) -> str | None:
+    if mode == "staged":
+        command = ["git", "rev-parse", "--verify", "HEAD"]
+    elif mode == "base" and reference is not None:
+        command = ["git", "merge-base", reference, "HEAD"]
+    else:
+        return None
+    completed = subprocess.run(
+        command,
+        cwd=root,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if completed.returncode != 0:
+        return None
+    value = completed.stdout.decode("utf-8", errors="replace").strip()
+    return value.splitlines()[0] if value else None
+
+
+def _git_receipts(root: Path, revision: str | None) -> dict[str, bytes]:
+    if revision is None:
+        return {}
+    receipts: dict[str, bytes] = {}
+    paths = _git_paths(root, revision)
+    for path in paths:
+        if not path.startswith(RECEIPT_DIRECTORY + "/") or not path.endswith(".json"):
+            continue
+        data = _git_show(root, f"{revision}:{path}")
+        if data is not None:
+            receipts[path] = data
+    return receipts
 
 
 def _check(root: Path, args: list[str]) -> tuple[dict[str, object], int]:
     mode, reference, paths, bootstrap = _parse_check_args(args)
     changes = _git_changes(root, mode, reference, paths)
-    file_contents = _git_index_contents(root, changes) if mode == "staged" else None
+    read_blob = None
+    companions: list[str] | None = None
+    if mode == "staged":
+        read_blob = _GitBlobReader(root).read
+        companions = _git_index_companions(root)
+    elif mode == "base":
+        companions = _worktree_companions(root)
+    baseline = _git_receipts(root, _baseline_revision(root, mode, reference))
     policy_result = check_freshness(
         root,
         changes,
         bootstrap,
-        file_contents=file_contents,
+        read_blob=read_blob,
+        companions=companions,
+        baseline_receipts=baseline,
     )
     return policy_result, 0 if policy_result["decision"] == "allow" else 1
 
