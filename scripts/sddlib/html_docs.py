@@ -315,13 +315,19 @@ def main(argv: list[str] | None = None) -> int:
         "validate",
         "bootstrap",
         "doctor",
+        "host-api",
     }:
         return _write_result(
             _result_error(
-                "usage: html-docs {edit-check|check|validate|bootstrap|doctor}"
+                "usage: html-docs {edit-check|check|validate|bootstrap|doctor|host-api}"
             ),
             2,
         )
+
+    if arguments[0] == "host-api":
+        from sddlib.html_host_api import cli_main as host_api_main
+
+        return host_api_main(arguments[1:], root=Path.cwd())
 
     command, command_args = arguments[0], arguments[1:]
     root = Path.cwd()

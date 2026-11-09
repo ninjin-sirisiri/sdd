@@ -533,3 +533,40 @@ def test_doctor_rejects_cursor_commands_outside_required_hooks(tmp_path: Path) -
         if item["host"] == "cursor"  # type: ignore[index]
     )
     assert cursor_status == "incompatible"
+
+
+def test_host_api_command_returns_versioned_capabilities(tmp_path: Path) -> None:
+    process = run_cli(
+        tmp_path,
+        "host-api",
+        payload={"version": 1, "operation": "capabilities"},
+    )
+
+    assert process.returncode == 0
+    checked = result(process)
+    assert checked["ok"] is True
+    assert checked["version"] == 1
+    assert checked["operation"] == "capabilities"
+    assert checked["result"]["protocol"]["version"] == 1  # type: ignore[index]
+    assert checked["result"]["operations"] == [  # type: ignore[index]
+        "capabilities",
+        "discover",
+        "source-units",
+        "candidate-check",
+    ]
+
+
+def test_host_api_rejects_extra_arguments_with_stderr(tmp_path: Path) -> None:
+    process = subprocess.run(
+        [str(CLI), "host-api", "capabilities"],
+        cwd=tmp_path,
+        input="",
+        text=True,
+        capture_output=True,
+    )
+
+    assert process.returncode == 2
+    assert process.stderr
+    checked = json.loads(process.stdout)
+    assert checked["ok"] is False
+    assert checked["error"]["code"] == "invalid-request"

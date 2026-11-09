@@ -115,6 +115,23 @@ python3 "$SDD_PACK_ROOT/scripts/html-docs" doctor
 
 The result reports one registration for each host. Missing, disabled, unreadable, or incompatible registrations are setup violations and return a non-zero result; `doctor` never writes configuration. A configured fixture repository should report enabled registrations at `.cursor/hooks.json`, `.claude/hooks.json` (or `hooks/hooks.json`), and `.opencode/plugins/html_docs_plugin.ts`.
 
+## Host API
+
+`html-docs host-api` exposes a version 1 stdin/stdout JSON protocol for hosts that validate authored candidates as if they were at their official paths. It reads one JSON request from stdin and writes one JSON envelope to stdout. The document root is the caller's current working directory. All content is supplied in memory as standard base64 bytes keyed by canonical repository-relative POSIX paths; the API never reads supplied candidate HTML from disk and never writes files or creates HTML.
+
+Operations:
+
+- `capabilities` returns the protocol and policy versions, limits, stage semantics, and the no-write / no-bootstrap contract.
+- `discover` resolves supplied paths to Target source and companion pairs.
+- `source-units` returns the version 1 source index and scanner-derived strict requirements for supplied Markdown bytes.
+- `candidate-check` runs the common static validator for a Target pair. `stage: "structural"` performs static checks only and is never a final pass; it rejects a receipt. `stage: "final"` also requires a supplied receipt under `docs/sdd/html-evidence/` and binds the receipt's source, HTML, CSS, resource, policy, verification, and condition fields to the supplied input digests. A final receipt requires a `semantic-v1` companion.
+
+Requests carry `version: 1`, `operation`, an optional `timeout_ms`, and an `inputs` object mapping relative paths to base64 bytes. `candidate-check` also carries `path`, `stage`, and, for final, `receipt`. Responses are `{"ok":true,"version":1,"operation":...,"root":...,"result":{...}}` or `{"ok":false,...,"error":{"code":...,"message":...}}`. Protocol and input failures exit `2` with a diagnostic on stderr. A static or binding denial has `ok: true`, `result.decision: "deny"`, and exit `1`; any non-zero exit also writes a one-line diagnostic to stderr. Markdown sources are limited to 2 MiB, candidate HTML to 8 MiB, and each input to 16 MiB within a 64 MiB request.
+
+Error codes are stable machine-readable names, including `path-escape`, `path-invalid`, `unsupported-version`, `unsupported-schema`, `invalid-json`, `invalid-base64`, `invalid-encoding`, `missing-field`, `missing-input`, `input-too-large`, `too-many-inputs`, `too-many-paths`, `invalid-timeout`, `timeout`, `duplicate-input`, `not-target`, `invalid-stage`, `invalid-receipt-path`, `receipt-invalid-json`, `receipt-schema`, `unknown-field`, and `unknown-operation`. Errors include the affected path or details when they are known.
+
+The API does not bootstrap, render, assess meaning, call a model, or decide publication. Bootstrap remains the explicit `html-docs bootstrap` operation. The receipt path is supplied by the caller; deriving the canonical filename is a Git/CI concern, not part of this API. `capabilities` reports a policy version and a fingerprint over the static policy modules so a host can refuse a mismatched checkout.
+
 ## Git And CI
 
 Install the local HTML freshness gate without silently replacing an existing pre-commit hook:
