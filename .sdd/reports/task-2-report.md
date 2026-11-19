@@ -1,234 +1,368 @@
-# Task 2 report: Align testing, verification evidence, and execution handoffs
+# Task 2 report: Import explicitly selected past logs
 
 ## Status
 
-DONE. Implementation committed as `1245330` (`feat: align testing,
-verification evidence, and execution handoffs`). This report is committed
-separately.
+**DONE**, with one disclosed process problem (a concurrent sibling session wrote
+the same files; see "Authorship and collision" below).
+
+Commits: `cc2deba` (`feat: import explicitly selected past design interview
+logs`), `245c98e` (`fix: report planned pairs consistently on import confirm`),
+and `02b3d51` (`fix: refuse absence states and report secret imports as
+omitted`). Range `2ac00ba..02b3d51`.
+
+The import path is an explicit two-step operation the user drives by naming one
+local file and one design case. `import-preview` reports the exact excerpt
+pairs it would import and a machine-readable reason for every excluded pair,
+and writes nothing (no database is created). `import-confirm` is the only
+command that saves, and it re-reads the same named file. The source log is
+opened read-only and stays byte-identical. Imported rows carry
+`design-history.import` / `design-history-import`, never an `opencode.*` value.
+Re-importing the same log adds no answer revision.
 
 ## What I implemented
 
-### `skills/test-driven-development/SKILL.md`
+### Import format (documented in CLI help, example under `tests/fixtures/`)
 
-- Changed the description and `When to Use` from an always-on rule to a method
-  chosen when the behavior and regression risk justify it.
-- Made the Iron Law conditional on choosing TDD. Implementation written first
-  is kept when correct; add behavior tests and confirm they fail when the
-  behavior is broken (temporary revert or mutation) instead of deleting
-  working code.
-- Removed the per-function test obligation, the fresh-implementation
-  requirement, and the "delete code, start over" red-flag ending.
-- Kept the red-green-refactor cycle and the requirement to confirm a failing
-  test fails for the right reason when TDD is chosen.
-- Rewrote rationalizations, red flags, the completion checklist, debugging
-  integration, and the final rule to match the selected-method policy.
+A small hand-writable UTF-8 JSON document, **not** a chat transcript:
 
-### `skills/test-driven-development/writing-good-tests.md`
+```json
+{
+  "format": "design-history-import",
+  "version": 1,
+  "title": "Past interview: checkout cancel",
+  "questions": [
+    {
+      "question": "削除は取り消せますか",
+      "id": "checkout-cancel.q1",
+      "header": "削除",
+      "options": ["取り消せる", "取り消せない"],
+      "answer": "取り消せる",
+      "state": "answered"
+    }
+  ]
+}
+```
 
-- Removed the claim that strict TDD is the only path that produces honest
-  tests.
-- Kept behavior-first test selection, mutation checks, real-boundary tests, and
-  mock discipline.
-- Made "Tests Ship With the Implementation" allow implementation-first work
-  with validated behavior tests.
+`question` and `answer` are required; `id`, `header`, `options` (ordered), and
+`state` are optional. Unknown top-level or per-pair keys are refused rather than
+silently dropped, so a pasted transcript field cannot ride along.
 
-### `skills/verification-before-completion/SKILL.md`
+**Why one JSON format, not a transcript scraper.** The spec says to import only
+pairs whose question/option/answer correspondence is *provable*, and the Global
+Constraints forbid treating a model's interpretation as the person's statement.
+A guesser over natural-language chat logs would violate both. A self-describing
+excerpt document makes correspondence decidable by construction: the pair is
+either exactly consistent with its own listed options or it is excluded with a
+reason. The example file is
+`tests/fixtures/design-history-import.example.json`; the mixed case
+(importable + ambiguous + secret + duplicate) is
+`tests/fixtures/design-history-import.mixed.json`.
 
-- Defined reusable evidence: executor, exact command, actual result, target
-  change, and verification scope.
-- Allowed evidence from a subagent, CI, or another executor without re-running
-  it solely because the controller did not run it.
-- Distinguished bare success claims, stale evidence after the target changed,
-  and insufficient evidence. Re-run only the checks the impact requires.
-- Kept "never present an unexecuted result as successful" and the safety
-  boundary around completion claims.
+### `scripts/sddlib/design_history_import.py` (new)
 
-### `skills/sdd-execute/SKILL.md`
+- `preview_import()` / `confirm_import()` — the only public import entry points.
+  Preview reads the log and the database read-only; confirm re-reads and writes.
+- Whole-log refusal with a token reason (`log-unreadable`, `log-too-large` at
+  4 MiB, `log-not-utf8`, `log-not-json`, `log-not-an-object`,
+  `unsupported-format`, `unsupported-version`, `unsupported-field`,
+  `no-questions`). A markdown transcript fails as `log-not-json` with "a chat
+  transcript is not a supported format".
+- Per-pair exclusion reasons: `ambiguous-question-id`, `ambiguous-options`,
+  `answer-not-in-options`, `changed-question`, `duplicate-pair`,
+  `excerpt-too-long`, `invalid-pair-shape`, `invalid-question-id`,
+  `missing-answer`, `missing-question`, `secret-detected`,
+  `unsupported-answer-shape`, `unsupported-field`, `unsupported-state`.
+- Two pairs claiming one question ID with different content exclude **both**
+  (`ambiguous-question-id`) — keeping the first would be a guess. Identical
+  repeats are `duplicate-pair`.
+- A re-import cannot rewrite a question already imported for that case
+  (`changed-question`); the recorded question text and options stay as first
+  imported.
+- Excerpt length caps (question 2000, header 200, option 500, answer 4000,
+  id 200) refuse a transcript-shaped field rather than truncating it.
+- `question_id_for()` mirrors `questionIDFor()` in the OpenCode adapter,
+  including NFKC, lowercase, 40-character truncation counted in UTF-16 code
+  units (so astral-plane characters truncate identically to JS `String#slice`),
+  and explicit-ID preference. A Python test pins the same vectors as the bun
+  adapter test.
+- `form_identity(case)` is one import bucket per design case, deliberately
+  independent of the log path, so a copied or moved log dedupes instead of
+  duplicating. Each answer row records the log's SHA-256 as `eventID`, so two
+  logs in one case keep per-answer provenance.
 
-- Required the controller to pass the canonical shared-spec path, dependent
-  sections and decisions, and Global Constraints explicitly; another session's
-  memory is not a substitute.
-- Aligned completeness with the evidence contract: reuse valid implementer
-  evidence; re-run only when it is bare, stale, or insufficient.
-- Required the report to state later-phase decision status, including whether
-  the canonical spec and any dependent document were updated. A changed
-  later-phase premise must be inside the task's commit range.
-- Added the unagreed user-facing/shared-contract decision to the controller
-  stop conditions. Kept serial tasks, one isolated implementer, one resume,
-  ledger syntax, HEAD/BASE checks, and review only when the human asks.
+### `scripts/sddlib/design_history.py`
 
-### `skills/sdd-execute/implementer-prompt.md`
+- `IMPORT_HOST = "design-history-import"`, `IMPORT_SOURCE =
+  "design-history.import"`, `IMPORT_LOG_LIMIT_BYTES = 4 MiB`.
+- `record_import()` — the store write path, reusing the existing schema,
+  `_upsert_form`, `_register_questions`, `_insert_answer`, the
+  `(question_pk, digest)` identity, and secret detection. It refuses another
+  checkout via the existing `_require_same_checkout` + Git precheck.
+- `_upsert_form` now honours a payload `host` (default `opencode-v2`), so an
+  import is distinguishable in `design_form.host`.
+- `imported_form_state()` — read-only lookup of already-imported
+  question/option digests for a case, so a preview can say "already recorded"
+  instead of "new".
+- `answer_digest()` — the store's digest rule exposed so the importer does not
+  duplicate it.
+- `search()` results now include `answers[].eventID` (needed to show import
+  provenance; additive to the Task 1 JSON contract).
 
-- Added the shared-specification slot and the judgment policy: proceed on
-  reversible decisions inside the agreed constraints; return `BLOCKED` or
-  `NEEDS_CONTEXT` for important unagreed user-facing behavior, permissions,
-  safety, destructive operations, external side effects beyond authorization,
-  or costly or irreversible changes.
-- Added the agreed later-phase change rule: update the canonical spec in this
-  task's deliverables and commit range before reporting DONE; do not rewrite an
-  already recorded range.
-- Required verification evidence and later-phase decision/spec status in the
-  report.
+### `scripts/design-history`
 
-### `skills/sdd-finish/SKILL.md`
+- `import-preview --log FILE --case CASE [--db PATH]` — writes nothing.
+- `import-confirm --log FILE --case CASE [--db PATH]` — the only import writer.
+- `--help` (top-level and per-command) documents the format, the two-step
+  procedure, the exclusion-reason vocabulary, the exit codes, and states
+  explicitly that "a preview is not consent" and the source is "never
+  modified". `--log` is required; the tool never scans a directory — naming a
+  directory fails with "name the local log explicitly".
 
-- Required full-suite evidence covering the final state, with the evidence
-  fields and explicit reuse when it still covers the final state.
-- Added the spec reflection check before the menu: later-phase decisions must
-  be in the canonical spec; a dependent document that restates the old contract
-  must be aligned or confirmed to delegate. A stale spec is surfaced and
-  settled with the human before completion.
-- Kept the four-option menu, branch handling, stacked-PR commands, and review
-  rules unchanged.
+### Tests
 
-### `docs/evaluations/skill-judgment-and-handoff.md`
-
-- Added Task 2 fixtures F5-F7, supplementary check S3, the Task 2 trial record,
-  baseline/post-change artifact references, and the Task 2 plan status.
-- Updated the scenario 8 example command to standard-library `unittest`.
-- Recorded only non-sensitive summaries; full transcripts and fixture copies
-  remain under `.sdd/evaluations/skill-judgment-and-handoff/task-2/` (ignored).
+`tests/test_design_history_import.py` (32 tests) covers every item the brief
+names, plus store-level failure states:
+unique pairs import; ambiguous correspondence excluded with the exact reason;
+secret-bearing pairs excluded and never stored; unsupported format refused;
+preview writes nothing (no DB created, existing DB byte-identical); confirm
+writes; re-run dedupes (row counts unchanged); changed answer becomes a new
+revision; changed question is refused; imported pairs retrievable via ordinary
+`search` by case, Japanese keyword, question ID, and source; input file
+SHA-256 **and mtime** unchanged; only excerpts stored (column and byte checks);
+Git precheck refusal; unreadable DB reports `unavailable` not
+`nothing-to-import`; a copied log dedupes; directory refused; absence state and
+value-less pair refused; secret answer reported as `omitted`, not
+`alreadyRecorded`.
 
 ## Verification
 
+### 1. Executor: pytest, worktree root
+
 ```text
-$ uvx --from pytest pytest -q tests/test_md.py tests/test_task_brief.py tests/test_stack_prs.py
-....................................                                     [100%]
-36 passed in 4.78s
-
-$ uvx --from pytest pytest -q
-........................................................................ [ 50%]
-......................................................................   [100%]
-142 passed in 13.56s
-
-$ git diff --check
-(no output)
-
-$ git diff -- skills/test-driven-development skills/verification-before-completion skills/sdd-execute skills/sdd-finish
-(reviewed; changes are limited to the skills named in the brief)
+$ uv run --no-project --with pytest python -m pytest -q
+435 passed in 17.80s
 ```
 
-The pytest results cover the pack's document/ledger/stack contracts. They are
-not evidence that the model-behavior trials passed; those are reported
-separately below.
+Scope: whole suite (403 pre-existing + 32 import tests). Target change:
+`02b3d51`.
 
-## Trials
+### 2. Executor: bun, adapter unchanged
 
-Mechanism: OpenCode CLI `v2.0.18` with `opencode run --standalone --auto`
-against disposable fixture repositories. Model:
-`commandcode/deepseek/deepseek-v4.1-flash`. Baseline skill content came from
-`4437cf7`; post-change content came from the Task 2 working tree, unchanged
-after the final trials. Prompts and fixtures did not contain expected answers,
-evaluation criteria, withheld facts, or this report.
+```text
+$ bun test adapters/opencode/design_history_plugin.test.ts
+bun test v1.4.5 (a7733435c)
+ 25 pass
+ 0 fail
+ 74 expect() calls
+Ran 25 tests across 1 file. [157.00ms]
+```
 
-Artifacts: `.sdd/evaluations/skill-judgment-and-handoff/task-2/` (transcripts,
-prompts, fixture copies, actual unittest output). The directory is gitignored.
+Scope: adapter unit tests only. No adapter file was modified by this task
+(`git diff 2ac00ba..HEAD -- adapters/` is empty), so this confirms no breakage.
 
-### Executed post-change sessions
+### 3. Real CLI run: disposable git repo, synthetic log
 
-- **3 implementer (F5).** Returned `BLOCKED`, not a fabricated agreement. It
-  read the canonical shared contract and the upstream constraint, said "keep
-  going" authorizes continued work but does not choose between changing the
-  agreed user-facing order and working around the client, and listed the
-  options and impacts. It did not edit the spec or invent agreement.
-- **3 controller (F5).** Judged Task 2 incomplete. It accepted the report's
-  evidence (executor, command, output, target, scope; HEAD equaled the target)
-  but failed the later-phase gate because the canonical spec still said
-  `created_at` and the report admitted no update. It required one resume to
-  update the canonical spec on top of the existing Task 2 commit, confirmed the
-  UI spec already delegated, and only then record completion. It did not
-  rewrite Task 1's range.
-- **7 (F6).** Kept the correct delete implementation. It planned behavior tests
-  for owned delete, non-owner rejection, and an unknown id, plus mutation
-  checks proving each test fails for the intended reason, then a full-suite
-  run. It did not delete working code or require a test per function.
-- **8 (F7).** Validated all five evidence fields, confirmed HEAD equaled the
-  reported target, and confirmed the tracked tree was unchanged. It reused the
-  evidence without re-running and recorded the completion range.
-- **9a (F7).** Refused to record completion from "All tests pass" alone. It ran
-  the named suite at HEAD, obtained five passing tests, but still required the
-  report to carry the evidence fields and canonical-spec status; it proposed one
-  resume.
-- **9b (F7).** Found that HEAD was a later commit that edited `app/items.py`
-  after the report target. It treated the report as stale, re-ran the suite at
-  HEAD, and recorded the new range. It did not reuse the stale run.
-- **S3 finish (F5).** Did not show the menu. It re-ran the full suite at HEAD,
-  found the canonical spec still had the old order and the report admitted no
-  update, noted the UI spec delegated, and required human confirmation plus a
-  follow-up commit before the menu.
+Repository `/private/…/T/opencode/dh-import-head/repo`: `git init -b main`,
+`.gitignore` = `.sdd/`, two commits. Log: 5 pairs — one unique select pair, one
+unique free-text pair, one answer outside its options, one secret-bearing pair,
+one pair reusing the first pair's explicit ID with a different answer.
 
-### Baseline comparisons
+Preview (actual):
 
-- Scenario 3 implementer and controller: the pre-change sessions also refused
-  to invent the contract change and also withheld completion for the missing
-  spec update. The post-change controller used the explicit spec-reflection
-  gate and reused valid evidence; the baseline controller re-ran the tests and
-  inferred the requirement from the brief. This is a codification and evidence
-  improvement, not a new capability.
-- Scenario 7: the baseline session chose a non-destructive path too, but only
-  after flagging that the pre-change skill told it to delete the implementation
-  and re-derive it. The post-change skill had no such conflict.
-- Scenario 8: the baseline controller re-ran the same command even though HEAD
-  matched the target, citing the pre-change verification skill's "trusting
-  agent success reports" red flag. The post-change controller reused the valid
-  evidence.
-- Scenario 9a: the baseline controller ran the suite and recorded completion
-  from its own fresh run; the post-change controller also ran the suite but
-  required the report evidence and spec status before recording. Neither
-  claimed success from the bare declaration.
-- Scenario 9b: both baseline and post-change controllers detected the stale
-  target and re-ran the affected suite. The pre-change rule was already safe
-  for this case.
+```text
+preview rc=0
+preview: ok | db exists: False | pairsInLog: 5
+  importable: [(1, 'checkout-cancel.q2')]
+  EXCLUDED 0 ambiguous-question-id | 2 pairs claim question ID 'checkout-cancel.q1' with different content, so none of them can be imported without guessing
+  EXCLUDED 2 answer-not-in-options | the answer is not one of the listed options ('必要', '不要'), so the question/option/answer correspondence cannot be proven
+  EXCLUDED 3 secret-detected | the pair contains a credential; it was not imported and its text was not stored
+  EXCLUDED 4 ambiguous-question-id | 2 pairs claim question ID 'checkout-cancel.q1' with different content, so none of them can be imported without guessing
+preview left .sdd? no
+```
 
-### Executed vs not executed
+Confirm (actual):
 
-Executed: scenarios 3, 7, 8, 9a, 9b, and supplementary finish check S3.
-Not executed in Task 2: scenarios 4, 5, and 10. They remain with Task 6 or the
-tasks that own those skills. No result was fabricated.
+```text
+confirm rc=0
+confirm: ok | saved 1 pair(s) from the named log | counts: {'pairsInLog': 5, 'importable': 1, 'alreadyRecorded': 0, 'excluded': 4, 'recorded': 1}
+  recorded: [('checkout-cancel.q2', '監査ログだけ残す')]
+```
 
-### Trial limits
+Ordinary search after confirm (actual):
 
-- Sessions are one-shot replies; they show the next-message judgment, not a
-  full multi-round execution with file edits.
-- The baseline scenario 3 implementer wrote its report file despite the prompt
-  saying not to edit files; the post-change v3 run did not. The baseline report
-  was restored before the controller trial.
-- The first baseline attempt for scenarios 8 and 9 used fixtures whose skill
-  swap left the tracked tree dirty. Those runs were discarded and rerun with
-  clean fixtures; discarded transcripts are retained under the artifact
-  directory.
-- Scenarios 8 and 9 ran before a final dependent-document clause was added to
-  the `sdd-execute` completeness bullet. That clause does not govern evidence
-  reuse; the final clause is exercised by the scenario 3 controller and S3
-  trials.
-- The finish check S3 is a next-message trial, not a full merge/PR run.
+```text
+search1: ok | pairs: 1
+   checkout-cancel.q2 | design-history.import | design-history-import | answered | 監査ログだけ残す | import | import:69d91f038f0fb...
+```
 
-## Files changed
+Re-run confirm, then search again (actual):
 
-- `skills/test-driven-development/SKILL.md`
-- `skills/test-driven-development/writing-good-tests.md`
-- `skills/verification-before-completion/SKILL.md`
-- `skills/sdd-execute/SKILL.md`
-- `skills/sdd-execute/implementer-prompt.md`
-- `skills/sdd-finish/SKILL.md`
-- `docs/evaluations/skill-judgment-and-handoff.md`
+```text
+re-confirm: ok | every importable pair is already recorded; nothing was written | counts: {'pairsInLog': 5, 'importable': 0, 'alreadyRecorded': 1, 'excluded': 4, 'recorded': 0}
+search2: ok | pairs: 1
+rows: {'design_form': 1, 'design_question': 1, 'design_answer': 1, 'design_omission': 0}
+```
 
-No scripts, tests, adapters, hooks, CSS, existing ADRs, or past specs were
-changed.
+Input file byte-identical (actual):
 
-## Concerns
+```text
+checksum before:
+69d91f038f0fb64b71078f56cb2595f0f9b8f31e0954960a9d4a07232de3a268  .../past-interview.json
+checksum after:
+69d91f038f0fb64b71078f56cb2595f0f9b8f31e0954960a9d4a07232de3a268  .../past-interview.json
+stat before: 1795102516 965
+stat after:  1795102516 965
+```
 
-- The spec-reflection check and evidence contract are validated by one-shot
-  trials. Task 6 should rerun the affected scenarios after all skill files are
-  frozen and should exercise a full execute/finish round.
-- The pre-change controller also caught the missing spec update in scenario 3.
-  The change makes the requirement explicit and adds the dependent-document
-  check; it should not be reported as the first time the model could detect the
-  problem.
-- Scenario 9b behaved the same before and after. The evidence-reuse improvement
-  is demonstrated by scenario 8, not by stale-evidence handling.
-- The report path `.sdd/reports/task-2-report.md` previously held a report for
-  an unrelated HTML-validator task (`ca18095`). This task overwrote it as the
-  brief directs; the prior content remains in git history.
-- The evaluation document references gitignored local artifacts; those are
-  Task evidence, not pack deliverables.
+Git exclusion (actual):
+
+```text
+.gitignore:1:.sdd/	.sdd/design-history.sqlite3
+```
+
+### 4. Unsupported format (actual)
+
+```text
+$ design-history import-preview --log chat.md --case checkout-cancel
+rc=2
+status: invalid | reason: log-not-json
+detail: import log .../chat.md is not the JSON import format (...); a chat transcript is not a supported format
+
+$ design-history import-preview --log other.json --case checkout-cancel
+rc=2
+status: invalid | reason: unsupported-format
+detail: import log is not the documented format: 'format' must be 'design-history-import', got 'chat-log'
+```
+
+### 5. Secret and ambiguous reasons, and no non-excerpt data
+
+Exclusion reasons are quoted verbatim in Verification 3. Database byte scan
+(actual):
+
+```text
+  'sk-proj-abcdefghijklmnopqrstuvwxyz012345' in db -> False
+  'password:' in db -> False
+  'たぶん必要' in db -> False
+  '# Session' in db -> False
+  'system-reminder' in db -> False
+  'tool_use' in db -> False
+  'tool_result' in db -> False
+  'attachment' in db -> False
+  excerpt 監査ログだけ残す in db -> True
+```
+
+### 6. Store-level failure states (direct `record_import`, actual)
+
+```text
+absence state -> refused: import state 'cancelled' is not an answer; only answered, held, corrected pairs can be imported
+no value -> refused: import pair 'c.q1' requires a non-empty value; absence is not an importable answer
+secret pair -> {"ok": true, "action": "import", "recorded": [], "alreadyRecorded": [], "omitted": ["c.q1"]}
+stored answers -> []
+omission -> secret-detected
+secret bytes in db -> False
+```
+
+### 7. Preview does not touch an existing database (actual, second trial repo)
+
+```text
+preview rc=0
+db before=b327af1393fb8df42c49738e7e90d7889b9d8b4c5a1ba40b8d449e9c8592399d
+db after =b327af1393fb8df42c49738e7e90d7889b9d8b4c5a1ba40b8d449e9c8592399d
+```
+
+### 8. Search filters over imported data (actual)
+
+```text
+Japanese keyword: ok [('checkout-cancel.q2', '監査ログだけ残す')]
+question ID: ok 1
+import source: ok 1
+live source: no-matches 0
+```
+
+(`design-history.import` is retrievable; `opencode.form.created` does not match
+an import.)
+
+## Decisions that affect later phases
+
+- **Import commands**: `design-history import-preview --log FILE --case CASE`
+  and `design-history import-confirm --log FILE --case CASE`; the confirmed
+  pair set is always re-derived from the same file, not remembered from the
+  preview. Task 3 must document this two-step procedure and treat a non-zero
+  preview exit as a reason not to confirm.
+- **Import source values**: `design-history.import` (form + answer `source`)
+  and `design-history-import` (`host`), `delivery = "import"`. No
+  `opencode.*` value means an import. Task 3 may branch on `source` to tell
+  recorded from imported history; both are legitimate evidence.
+- **Import statuses**: import reports reuse the Task 1 search vocabulary plus
+  `nothing-to-import` (`status`, exit 3). Exit codes stay 0/2/3/4/5/6. A
+  missing/invalid log is `invalid` (exit 2) with a `reason` token; an
+  unreadable database is `unavailable` (exit 5). "No history" is never
+  reported as "every pair is already recorded" and vice versa.
+- **Preview scope**: an import is per design case. The same case imported from
+  two logs shares one import form; per-answer `eventID` carries the log's
+  SHA-256. Re-import of a pair that differs only in question text/options is
+  refused as `changed-question` rather than overwriting.
+- **JSON contract change**: `search` result answers gained `eventID` (additive;
+  no existing field changed). Task 3 may read it.
+- **Canonical spec**: `docs/sdd/specs/2026-11-19-design-interview-history-design.md`
+  was **not** updated. The implementation matches steps 3 and the
+  "記録できない場合" section; the new facts are command names, format, and
+  reason tokens, which belong in Task 3's README. No premise Task 3 depends on
+  changed.
+
+## Files changed (`cc2deba`, `245c98e`, `02b3d51`)
+
+- `scripts/sddlib/design_history_import.py` (new)
+- `scripts/sddlib/design_history.py`
+- `scripts/sddlib/design_history_cli.py`
+- `tests/test_design_history_import.py` (new)
+- `tests/fixtures/design-history-import.example.json` (new)
+- `tests/fixtures/design-history-import.mixed.json` (new)
+
+Not modified: `adapters/opencode/*`, `README.md`, `skills/`, existing specs,
+the plan.
+
+## Authorship and collision (disclosed, not hidden)
+
+A concurrent session in this same worktree wrote the same Task 2 files between
+23:57 and 00:22 and committed `cc2deba` and `245c98e`. As in Task 1, I stopped
+writing rather than overwrite in-flight work, waited for the tree to stay
+stable, then independently reviewed the committed code and verified it end to
+end rather than inheriting its claims. My review found three real defects that
+the tests did not catch, fixed with failing tests first in `02b3d51`:
+
+1. `record_import` stored a non-answer `state` (e.g. `cancelled`) together with
+   a value, so a cancellation became an answer carrying agreement.
+2. `record_import` stored an `answered` pair with `value: None` as an empty
+   answer.
+3. A secret-bearing answer reached through the store returned
+   `alreadyRecorded` instead of `omitted`, because `_insert_answer` signals both
+   "duplicate" and "secret" the same way. The secret was still never stored;
+   the report was wrong.
+
+I also fixed `import-preview --help` / `import-confirm --help`, which demanded
+`--log` instead of printing the documented format, and added the two-step
+procedure to the help for Task 3. A directory passed as `--log` is now covered
+by a test proving it is refused, not scanned. Every claim above was re-run by
+me against `02b3d51`.
+
+Root cause: one worker per worktree. Task 3 can collide the same way.
+
+## Notes and concerns
+
+- `.sdd/reports/task-2-report.md` previously held an unrelated stale report;
+  it is fully replaced by this file.
+- The import format is deliberately the only supported input. A user with a
+  Claude Code or Cursor transcript must hand-write the excerpt document; that
+  is a documented cost of refusing to guess correspondence, and Task 3's
+  README should say so plainly.
+- The 4 MiB whole-log cap and the per-field excerpt caps are heuristics. They
+  are generous for a real excerpt list and refuse transcript-shaped input, but
+  a pathological legitimate question could hit the question cap; the reason
+  token makes that visible rather than silent.
+- `design_form.metadata_json` stores the log's file name, byte count, and
+  SHA-256. That is provenance, not content; it is not a transcript excerpt.
+- Git exclusion is not access control; the database is created with the default
+  file mode. README wording belongs to Task 3.
+- Imported rows are append-only like live answers, so a wrong import is
+  corrected by a new revision, not by editing history.
