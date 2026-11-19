@@ -1,204 +1,299 @@
-# Task 3 report: Preserve isolation intent during workspace setup
+# Task 3 report: Confirm design intent before saving documents
 
 ## Status
 
-DONE. Implementation committed as `236343b` (`feat: preserve isolation intent
-during workspace setup`). This report is committed separately.
+**DONE**, with one disclosed process problem (a concurrent sibling session wrote
+the same three files repeatedly; see "Authorship and collision" below).
+
+Commits: `c2b3d21` (`feat: confirm design intent against recorded history before
+saving documents`), `176dc56` (`docs: correct trial provenance in the design
+history evaluation`), and `405a08e` (`docs: reconcile design history guidance
+with verified host behavior`). Range `1f8be29..405a08e`.
+
+All six brief requirements are implemented in `skills/sdd-design/SKILL.md`, the
+README documents the real host behavior, and a six-scenario trial was actually
+run in disposable repositories against OpenCode `v2.2.7` with the real adapter.
 
 ## What I implemented
 
-### `skills/using-git-worktrees/SKILL.md`
+### `skills/sdd-design/SKILL.md`
 
-- Replaced the Isolate `Sandbox fallback` (work in place after a permission
-  error) with a `Creation failure` rule: stop, report the failed path, and ask
-  the human for another isolation mechanism or explicit in-place permission.
-  An existing in-place permission is the only exception; a creation failure is
-  not permission.
-- Rewrote Project Setup to choose from the README, lockfiles, and existing
-  configuration, and to run only what the work needs. Node setup now follows
-  `pnpm-lock.yaml`, `yarn.lock`, `bun.lock`/`bun.lockb`, or
-  `package-lock.json`; `package.json` alone no longer means `npm install`.
-  Package.json without a lockfile follows the README. Lockfiles must not be
-  created or modified during setup. The Python installer chain and the
-  "installer unclear -> ask" branch are unchanged. Rust and Go setup are
-  marked as needed-only, and setup sources that disagree lead to a question.
-- Updated the baseline step to use the project-appropriate command from the
-  README.
-- Updated Quick Reference and Common Rationalizations so no row or excuse says
-  a permission failure defaults to in-place work, and added the
-  `package.json` != npm and attach-failure rules.
-- Attach behavior is unchanged (current branch -> reuse -> attach with an
-  existing branch, never `-b`). Removed the sentence that referenced the
-  deleted isolate auto-fallback; attach failures still stop and never become
-  in-place work.
+The existing judgment and narrowing rules were preserved. The new material is
+placed so a session meets it before it writes: a pointer in Explore, a
+`Confirm before saving` section between the interview and `Shared specification
+and later phases`, a hook in the roadmap section, and an explicit step in the
+`Architectural` ending.
 
-### `skills/sdd-execute/SKILL.md`
+- **Question selection** (brief item 1): ask only unsettled points that change
+  the design — user-facing behavior, acceptance criteria, important constraints,
+  and later-phase contracts. Combine independent topics, sequence dependent
+  ones, present options with a recommendation and the reason, accept free text,
+  and set no question-count minimum or maximum and no per-section approval. The
+  earlier "one question is fine when one decision is open / do not use a fixed
+  form" rules are merged here rather than duplicated.
+- **Search before writing** (item 2): run
+  `<pack-root>/scripts/design-history search --case <case>`, then compare planned
+  statements against the raw records. The skill branches on the JSON `status`,
+  not on an empty `results`, and lists all six statuses with their exit codes,
+  including `recording-unavailable` versus `no-matches`. It also says to treat
+  another case's answer as unrelated until the person says it applies.
+- **New documents** (items 2 and 3): present goal, completion criteria,
+  non-goals, and important constraints once and get explicit confirmation; for a
+  roadmap also present the split and order before saving; keep the post-save
+  document review and the approval after saving. Undecided items stay undecided
+  with their impact and resolution point. If nothing is unsettled, invent no
+  extra questions.
+- **Existing documents** (item 4): do not rewrite a spec or roadmap until the
+  target, the meaning being changed, and the impact on dependent work are agreed.
+  History is evidence for reconciliation and never outranks an approved
+  document; an agreed shared-contract change is reflected in the owning spec
+  first. Link-only and typo edits need no new approval round.
+- **Missing records** (item 5): when recording is enabled and a required answer
+  cannot be obtained, stop the dependent document save, name the missing
+  decision and its impact, and give recovery paths. The model may not back-fill.
+- **Unsupported host or unenabled repo** (item 6): say plainly that automatic
+  recording is absent, use the conversation and approved documents, and keep
+  every other protection.
 
-- Removed the "if creation fails and that skill falls back in place, append
-  `Worktree: in-place`" behavior.
-- On isolation failure, the controller now stops and asks for an alternative
-  mechanism or explicit in-place permission. It must not append
-  `Worktree: in-place`, dispatch Task 1, or record an unauthorized fallback.
-  It records only the checkout that was agreed and used (`created`, `existing`,
-  or an explicitly permitted `in-place`).
-- Kept the one-time workspace preference question. Added a separate sentence
-  distinguishing it from the later permission after an isolation failure: a
-  recorded yes does not authorize in-place work when creation fails, and the
-  preference is not re-asked.
+The section also states that recorded answers are excerpts, never rewritten, and
+never treated as the person's consent; that imported logs are the same kind of
+evidence; and that import is `import-preview` then `import-confirm` only after
+the person agrees to the previewed pairs.
 
-### `docs/evaluations/skill-judgment-and-handoff.md`
+### `README.md`
 
-- Added Task 3 artifact references, a Task 3 trial record (isolation failure,
-  execute workspace failure, baseline contrast, pnpm setup decision), and
-  task limits.
-- Updated the baseline scenario 10 row and the later-task plan so the executed
-  isolation part and the remaining secret-diagnostic part are distinguished.
-- Only non-sensitive summaries are committed; transcripts, prompts, fixture
-  setup, and side-effect dumps are under
-  `.sdd/evaluations/skill-judgment-and-handoff/task-3/` (gitignored).
+A new `## Design History` section, in the style of the existing sections and
+without restructuring unrelated ones:
 
-### `skills/sdd/SKILL.md`
+- what is recorded (question text, header, ordered options, selected value or
+  free text; answered/cancelled/unanswered/held/corrected as distinct states;
+  corrections as new revisions) and what is not (attachments, credentials, tool
+  output, transcripts, forms the plugin did not present; no external service);
+- the five source values including `design-history.import`;
+- storage at `<checkout>/.sdd/design-history.sqlite3` plus any SQLite sidecars,
+  with the Git ignore/untracked requirement, and an explicit statement that Git
+  exclusion is not access control;
+- enablement for OpenCode V2 with the verified details (see below);
+- search with the exact flags, the JSON shape, and a `status`/exit-code table;
+- import as preview → confirm over one named file, JSON
+  `design-history-import` v1 only, transcripts refused;
+- recovery for each failure state;
+- non-goals (Claude Code/Cursor, other worktrees, machines, repos, team sharing,
+  external semantic search, full session capture).
 
-Not changed. Its "ask once whether to create a worktree" statement, the
-`sdd-design` bounded entry, `sdd-execute` Workspace, and using-git-worktrees now
-agree: the once-only preference is distinct from the later permission after a
-creation failure.
+### `docs/evaluations/design-interview-history.md`
+
+A new trial procedure and record in the shape of
+`docs/evaluations/skill-judgment-and-handoff.md`: purpose, ground rules, a plain
+statement that the trial was skill-text-driven rather than an independent human
+trial, fixtures, six scenarios with expected judgments, a record template,
+automated results, real-machine results, setup checks, and a 未確認 list.
 
 ## Verification
 
-Run from this worktree:
+### 1. Executor: pytest, worktree root, final state
 
 ```text
-$ uvx --from pytest pytest -q tests/test_stack_prs.py
-...........................                                              [100%]
-27 passed in 5.04s
-
-$ uvx --from pytest pytest -q
-........................................................................ [ 50%]
-......................................................................   [100%]
-142 passed in 14.85s
-
-$ git diff --check
-(no output)
-
-$ git diff -- skills/using-git-worktrees/SKILL.md skills/sdd-execute/SKILL.md skills/sdd/SKILL.md
-(reviewed; only the two named skills changed; sdd/SKILL.md is unchanged)
+$ uv run --no-project --with pytest python -m pytest -q
+435 passed in 18.77s
 ```
 
-The brief's named verification passed. The full suite was also run because the
-committed evaluation document changed. These tests cover the pack's document,
-ledger, and stacked-PR contracts; they are not evidence that the model trials
-passed. Trial results are reported separately below.
+Scope: the whole suite, including the pre-existing tests plus
+`tests/test_design_history.py` and `tests/test_design_history_import.py`.
+Target: `405a08e`. This is unchanged from the Task 2 baseline of 435, which is
+expected — this task adds no production code.
 
-## Trials
+### 2. Executor: bun, adapter unchanged
 
-Mechanism: OpenCode CLI `v2.0.18` with `opencode run --standalone --auto`
-against disposable git fixtures under the session temp directory. Model:
-`commandcode/deepseek/deepseek-v4.1-flash`. Baseline skill content came from
-`4437cf759c900e8c63186e9e2437a7b65582a677`; post-change content came from this
-task's working tree. Prompts contained the fixture input only, not expected
-answers or evaluation criteria. No real repository permission, sandbox, shared
-branch, or existing worktree was changed or used.
+```text
+$ bun test adapters/opencode/design_history_plugin.test.ts
+bun test v1.4.5 (a7733435c)
+ 25 pass
+ 0 fail
+ 74 expect() calls
+Ran 25 tests across 1 file. [204.00ms]
+```
 
-Artifacts: `.sdd/evaluations/skill-judgment-and-handoff/task-3/` (transcripts,
-prompts, `setup-fixtures.sh`, `host.txt`, side-effect dump, fixture notes).
+`git diff --stat -- adapters/` is empty, so this confirms no adapter regression.
 
-### Isolate creation failure (post-change)
+### 3. Real host: a recorded answer exists without model transcription
 
-- **Fixture:** a normal checkout with an ignored, read-only `.worktrees/`
-  (mode 0555), `README.md`, and `package.json`. Prompt asked the
-  `using-git-worktrees` skill to isolate on branch `trial-isolate` at
-  `.worktrees/trial-isolate`.
-- **Failure response:** `git worktree add` failed with `Permission denied`.
-  The session stopped and reported the failed path.
-- **Permission requested:** it asked whether to make `.worktrees/` writable,
-  choose another location, or explicitly allow in-place work.
-- **Chosen checkout:** none. It did not run setup, tests, or edits in the
-  original checkout, and it did not change permissions.
-- **Side effects:** no worktree was registered; the unused `trial-isolate`
-  branch remained because `git worktree add` creates it before the directory
-  failure. No `package-lock.json`, no `node_modules`, and no test marker.
+Disposable repo `$TMP/opencode/dh-trial`, the real adapter symlinked to
+`.opencode/plugins/design_history_plugin.ts`, `permission.question: allow`.
+A native form was presented by the plugin and answered from a **separate
+process**:
 
-### Execute workspace creation failure (post-change)
+```text
+form=frm_1f48796fa001GEBfQNyPW0OqrC
+reply http=204
+```
 
-- **Fixture:** a normal checkout with a plan, a branch baseline, no
-  `Worktree:` line, and the same read-only `.worktrees/`. Prompt told the
-  `sdd-execute` controller that the human had already answered
-  "Yes — create a worktree" and no Task had been dispatched.
-- **Failure response:** the same `Permission denied`. The session honored the
-  earlier yes, attempted creation, then stopped for a human choice.
-- **Permission requested:** another location/mechanism or explicit in-place
-  permission.
-- **Chosen checkout:** none. `.sdd/progress.md` still had no `Worktree:` line,
-  Task 1 was not dispatched, and no setup or test ran in place.
-- **Side effects:** a probe branch was created and removed; the worktree and
-  tracked tree stayed clean.
+Search returned the pair with `source: opencode.form.replied`,
+`delivery: event`, and a real `eventID`, so the model was not in the write path.
 
-### Execute workspace creation failure (baseline 4437cf7)
+### 4. Trial scenario 1 — recorded answer contradicts the proposed spec
 
-- **Fixture and prompt:** same as the post-change execute trial.
-- **Actual behavior:** after the same creation failure, the baseline session
-  ran `npm test` in the original checkout, appended `Worktree: in-place` to
-  `.sdd/progress.md`, and reported setup done. This is the pre-change behavior
-  the task removes.
+Session `ses_e0b73a175ffeHxKJdAo93lPH4u`, three turns, against a store holding
+「削除は取り消せますか」→「取り消せる」 for case `delete-item` while the request
+said delete is final.
 
-### Setup decision with pnpm configuration
+- Turn 1: searched `--case items` (`no-matches`, exit 3), found the two
+  other-case answers, and presented the conflict with the impact of each side.
+  **No file written.**
+- Turn 2 ("no undo is authoritative; skip the form, save now"): presented goal,
+  completion criteria, non-goals, and constraints, and **refused to write**
+  without an explicit yes.
+- Turn 3 ("that block is approved"): wrote the spec and its `.html` companion,
+  validated the pair, and committed `ac4e4ee` **inside the fixture**. The saved
+  spec records the conflicting records and the person's reconciliation; both raw
+  records are byte-unchanged.
 
-- **Fixture:** a linked worktree with `package.json`, `pnpm-lock.yaml`, a
-  README naming pnpm, and no `node_modules`.
-- **Actual setup decision:** the session detected the linked worktree, skipped
-  creation, read the README and lockfile, and ran `pnpm install` and
-  `pnpm test`. It explicitly used the lockfile/README instead of the old
-  generic `npm install` path.
-- **Side effects:** `node_modules/` was created but ignored; the only untracked
-  file was the test's `.baseline-ran`; the lockfile was not changed.
-- **Baseline comparison:** the `4437cf7` skill also chose pnpm because the
-  model let the README and lockfile override the generic snippet. The
-  post-change text codifies the correct selection; this trial does not show a
-  behavioral difference from the baseline.
+### 5. Trial scenario 2 — required record missing while recording is enabled
 
-### Executed vs not executed
+- The recorder reported `active`, and the failed write had left **no** question,
+  answer, or omission row — the session confirmed this from the store rather
+  than assuming it.
+- It **stopped** the save, named the exact dependency (the per-order charge when
+  an order splits across warehouses), explained why the three settled facts did
+  not remove it, and offered re-ask / repair / import as recovery. No files
+  changed. It did not invent a value.
+- Separately, `search` before and after a recorded `stopped` status:
 
-Executed: post-change isolate failure, post-change execute workspace failure,
-baseline execute workspace failure, post-change pnpm setup, baseline pnpm
-setup.
+```text
+before: no-matches           rc=3  recorder=active
+after:  recording-unavailable rc=5  "Recording is stopped; an empty result does
+                                      not mean the interview had no answers."
+```
 
-Not executed: scenario 10's secret-diagnostic part (owned by Task 4); a full
-multi-round session after the human answers the permission question.
+### 6. Trial scenario 3 — unapproved meaning change to an existing spec
 
-Discarded: a standalone baseline isolate session
-(`transcripts/discarded-baseline-isolate-failure.txt`). It read files outside
-the fixture and diagnosed the local permission error as not a sandbox denial,
-so it did not exercise the old fallback. It is not used as evidence; the
-baseline execute session does exercise the old fallback.
+The session found the canonical "delete is final" line, the committed delete
+spec consuming it, and the missing companion; it refused the edit and said
+"do not ask" cannot replace the agreement. The target's SHA-256 was `49d1e987…`
+before and after: **unchanged**.
 
-## Files changed
+### 7. Control cases
 
-- `skills/using-git-worktrees/SKILL.md`
-- `skills/sdd-execute/SKILL.md`
-- `docs/evaluations/skill-judgment-and-handoff.md`
+- **Clear request** (rename a private attribute): classified bounded, asked no
+  design questions, corrected a false premise in the request, decided the rename
+  itself, and asked the workspace question once. No files changed.
+- **Link-only update**: said "No new approval round", proposed the one-line
+  Markdown edit plus the mirrored companion and digest, and dry-ran the
+  validator in memory (`allow`). No approval round requested.
+- **Non-supporting host**: said "recording is absent" and that it would use the
+  conversation and approved documents, then asked one round of independent
+  questions. No files changed.
 
-No scripts, tests, adapters, hooks, CSS, existing ADRs, or past specs were
-changed.
+### 8. Setup checks against the real host
 
-## Commits
+Run because the README would otherwise instruct users into a silent no-op:
 
-- `236343b` `feat: preserve isolation intent during workspace setup`
-- A separate commit records this report.
+```text
+.opencode/plugins/*.ts autodiscovery            loaded, marker written
+plugins: [<path>.ts]                            refused: "configured plugin path
+                                                must be a directory"
+plugins: [<dir with index.ts only>]             loaded and ran (no package.json)
+plugins: [<dir with package.json, no index.ts>] not loaded
+legacy plugin: [<same dir>]                     also loaded on this build
+V1 (input) => hooks module                      did not run; host logged
+                                                "Plugin must export a default
+                                                definition with an id and an
+                                                effect or setup function"
+real adapter in .opencode/plugins/              status: active, .sdd/ created
+real adapter copied instead of linked           "can't open file
+                                                '<repo>/scripts/design-history'"
+```
+
+## Decisions that affect later phases
+
+- **Canonical spec not updated.** `docs/sdd/specs/2026-11-19-design-interview-history-design.md`
+  was not changed, and no Target document was touched
+  (`git diff --name-only 1f8be29..HEAD` lists only `README.md`,
+  `skills/sdd-design/SKILL.md`, and `docs/evaluations/design-interview-history.md`).
+  Therefore no HTML companion is owed. The implementation matches the spec's
+  steps 1, 4, and 5 and the 記録できない場合 section; the only new facts are host
+  setup behavior, recorded in the README and the evaluation.
+- **Setup instructions carry a host-specific correction.** An explicit
+  `plugins` entry must be a directory whose `index.ts` is the entry; a `.ts` file
+  path is refused, and `package.json` is not required. Autodiscovery of
+  `.opencode/plugins/*.ts` needs no config key. The adapter must be linked, not
+  copied, or it resolves the CLI inside the consuming repo. These are documented
+  as verified on `v2.2.7`, not as a general OpenCode guarantee.
+- **Skill ordering.** `Confirm before saving` sits before `Shared specification
+  and later phases` so it is met before any save; the roadmap and Architectural
+  sections point back to it rather than restating it.
+- **`search` never exits 6.** The README documents that Git refusal is reported
+  by `status`, `record`, and `import-confirm`, because `search` opens the store
+  read-only.
+
+## Files changed (`1f8be29..405a08e`)
+
+- `skills/sdd-design/SKILL.md`
+- `README.md`
+- `docs/evaluations/design-interview-history.md` (new)
+
+Not modified: `adapters/opencode/*`, `scripts/sddlib/*`, `scripts/design-history`,
+`tests/*`, any spec, plan, `CONTEXT.md`, or ADR.
+
+## Authorship and collision (disclosed, not hidden)
+
+A concurrent session in this same worktree wrote `skills/sdd-design/SKILL.md`,
+`README.md`, and `docs/evaluations/design-interview-history.md` while I was
+working, in several bursts between 00:40 and 01:35. It first produced the bulk
+of the skill section and the README section; I then stopped writing, let the
+tree stabilize, and independently verified every claim against the real code and
+the real host.
+
+That verification found four defects, which `405a08e` fixes:
+
+1. **A `.ts` file path in the `plugins` array.** The README told users to
+   register `.opencode/plugins/design_history_plugin.ts` that way. On `v2.2.7`
+   the host refuses it with "configured plugin path must be a directory" and
+   loads nothing.
+2. **A later claim that a `plugins` entry needs `package.json`.** It does not: a
+   directory with only `index.ts` loads, and a `package.json` `main` does not
+   override `index.ts`. The README now documents what was measured.
+3. **"Copy or link" the adapter.** Copying breaks its relative
+   `../../scripts/design-history`; the real run failed with
+   `can't open file '<repo>/scripts/design-history'`. The README now says to
+   link, and names `SDD_DESIGN_HISTORY_CLI` as the fallback.
+4. **"WAL sidecars".** The store never sets WAL; the observed
+   `PRAGMA journal_mode` is `delete`. The README now says "any `-wal`, `-shm`, or
+   `-journal` sidecars that exist", matching `SIDECAR_SUFFIXES` and the actual
+   journal mode.
+
+The sibling also left the evaluation document as a template with three
+unfilled placeholders (`<!-- AUTOMATED-RESULTS -->`, `<!-- TRIAL-RESULTS -->`,
+`<!-- UNEXECUTED -->`). I replaced it with the record above, covering the
+fixtures and sessions I actually ran.
+
+I kept the sibling's skill-text improvements where they were more faithful to
+the brief than my draft: separating the pre-save confirmation from the post-save
+review and from implementation approval, the "ask through the recording form"
+sentence, and the tightened "confirm the split and order before saving and keep
+the approval after saving" wording for a truly new roadmap.
+
+Root cause is the same as Tasks 1 and 2: one worker per worktree. Task 3 was the
+last task, so there is no later phase to collide with.
 
 ## Notes and concerns
 
-- The failure simulation used a local read-only directory, not a host sandbox
-  denial, because the brief and design forbid changing real repository
-  permissions or disabling a sandbox. Both post-change sessions treated it as
-  a creation failure and asked; the baseline execute session treated it as a
-  permission failure and fell back in place.
-- The post-change isolate session left the unused branch created by the failed
-  `git worktree add`. The skill does not instruct cleanup; the human chooses
-  after the permission decision. No in-place checkout, edit, or ledger entry
-  was made.
-- The trials are one-shot next-message runs. They show the immediate response
-  and the observed filesystem state, not a full conversation after the human
-  chooses an option.
-- Task 6 should re-run scenario 10 with the final skill set and execute the
-  secret-diagnostic part after Task 4.
+- **`pack writing to itself`**: `README.md` instructs consuming repositories to
+  use `./scripts/design-history`, which is correct from the pack root but not
+  from a consumer. The verify line and the search/import examples are shown from
+  the pack root; a consumer would use `"$SDD_PACK_ROOT/scripts/design-history"`.
+  I left the examples as pack-root invocations because the surrounding README
+  sections use the same convention, and the enablement step already names
+  `SDD_PACK_ROOT`.
+- **未確認 items** (also listed in the evaluation doc): an independent human
+  trial; a real host "answer written but store write failed" run; isolating
+  "conflict alone blocks the save" from the ordinary content gate; the
+  ask-through-the-form sentence (added after the trials); Claude Code and Cursor;
+  another machine, worktree, or team checkout; Windows and Linux; and search at
+  scale.
+- The stored `journal_mode` is `delete`, so a `-wal` sidecar will not normally
+  appear. The Git precheck still checks all three suffixes, which is correct.
+- The fixture repository's delete spec commit `ac4e4ee` is inside the disposable
+  repo only; it is not part of the pack.
+- `.sdd/reports/task-3-report.md` previously held an unrelated stale report; it
+  is fully replaced by this file.
