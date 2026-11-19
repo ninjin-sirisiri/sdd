@@ -256,6 +256,34 @@ def test_preview_requires_a_named_log_and_case(tmp_path: Path) -> None:
     assert not (repo / ".sdd").exists()
 
 
+def test_preview_refuses_a_directory_instead_of_scanning_it(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    write_log(logs / "a.json", log_document(question("削除は取り消せますか", "取り消せる")))
+    result = run_cli(repo, "import-preview", "--log", str(logs), "--case", "case")
+    assert result.returncode == 2
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "invalid"
+    assert "name the local log explicitly" in payload["detail"]
+    assert not (repo / ".sdd").exists()
+
+
+def test_a_copied_log_dedupes_instead_of_duplicating(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    document = log_document(
+        question("削除は取り消せますか", "取り消せる", id="case.q1", options=["取り消せる", "取り消せない"])
+    )
+    original = write_log(tmp_path / "log.json", document)
+    copy = write_log(tmp_path / "copy.json", document)
+    first = json.loads(run_cli(repo, "import-confirm", "--log", str(original), "--case", "case").stdout)
+    assert first["counts"]["recorded"] == 1
+    second = json.loads(run_cli(repo, "import-confirm", "--log", str(copy), "--case", "case").stdout)
+    assert second["counts"]["recorded"] == 0
+    assert second["counts"]["alreadyRecorded"] == 1
+    assert row_counts(repo)["design_answer"] == 1
+
+
 def test_preview_and_confirm_agree_on_the_same_pairs(tmp_path: Path) -> None:
     repo = init_repo(tmp_path)
     log = write_log(
@@ -593,6 +621,67 @@ def test_import_store_refuses_another_checkout(tmp_path: Path) -> None:
     assert not (other / ".sdd").exists()
 
 
+def test_store_refuses_an_absence_state_and_stores_no_answer(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    with pytest.raises(dh.DesignHistoryError, match="not an answer"):
+        dh.record_import(
+            {
+                "checkout": str(repo),
+                "sessionID": "import:case",
+                "formID": "import:case",
+                "case": "case",
+                "pairs": [
+                    {
+                        "questionID": "case.q1",
+                        "text": "この確認は取り消しますか",
+                        "state": "cancelled",
+                        "value": "はい",
+                    }
+                ],
+            }
+        )
+    # The refused write leaves no answer behind: a cancellation is never stored
+    # as agreement with a value attached.
+    assert dh.search(checkout=repo)["results"] == []
+
+
+def test_store_refuses_an_answer_state_with_no_value(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    with pytest.raises(dh.DesignHistoryError, match="absence is not an importable answer"):
+        dh.record_import(
+            {
+                "checkout": str(repo),
+                "sessionID": "import:case",
+                "formID": "import:case",
+                "case": "case",
+                "pairs": [{"questionID": "case.q1", "text": "削除は取り消せますか", "value": None}],
+            }
+        )
+    assert dh.search(checkout=repo)["results"] == []
+
+
+def test_store_reports_a_secret_bearing_answer_as_omitted(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    secret = "sk-proj-abcdefghijklmnopqrstuvwxyz012345"
+    result = dh.record_import(
+        {
+            "checkout": str(repo),
+            "sessionID": "import:case",
+            "formID": "import:case",
+            "case": "case",
+            "pairs": [{"questionID": "case.q1", "text": "接続先は", "value": f"password: {secret}"}],
+        }
+    )
+    # Not "already recorded": the pair was never stored at all.
+    assert result["recorded"] == []
+    assert result["alreadyRecorded"] == []
+    assert result["omitted"] == ["case.q1"]
+    pair = dh.search(checkout=repo)["results"][0]
+    assert pair["answers"] == []
+    assert pair["question"]["omitted"] == "secret-detected"
+    assert secret.encode() not in db_of(repo).read_bytes()
+
+
 def test_store_refuses_to_rewrite_an_imported_question(tmp_path: Path) -> None:
     repo = init_repo(tmp_path)
     dh.record_import(
@@ -674,3 +763,13 @@ def test_import_help_documents_the_format_and_the_write_split() -> None:
         "credential",
     ):
         assert expected in result.stdout
+
+
+def test_each_import_command_documents_itself_without_naming_a_log() -> None:
+    root = Path(__file__).resolve().parents[1]
+    for command in ("import-preview", "import-confirm"):
+        result = run_cli(root, command, "--help")
+        assert result.returncode == 0
+        assert "--log FILE" in result.stdout
+        assert imp.FORMAT_NAME in result.stdout
+        assert "a preview is not consent" in result.stdout

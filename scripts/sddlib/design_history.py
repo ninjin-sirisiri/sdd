@@ -859,6 +859,31 @@ def record_import(payload: dict[str, Any]) -> dict[str, Any]:
     already: list[str] = []
     omitted: list[str] = []
 
+    # Validate every pair before opening the database. An import only carries
+    # answers: an absence state or a value-less answer is refused rather than
+    # stored as if it were agreement.
+    for pair in pairs:
+        if not isinstance(pair, dict):
+            raise DesignHistoryError("each import pair must be an object")
+        state = str(pair.get("state") or STATE_ANSWERED)
+        if state not in ANSWER_STATES:
+            raise DesignHistoryError(
+                f"import state {state!r} is not an answer; only "
+                + ", ".join(ANSWER_STATES)
+                + " pairs can be imported"
+            )
+        value = pair.get("value")
+        empty = value is None or (isinstance(value, str) and not value.strip())
+        if isinstance(value, list):
+            empty = not value or any(
+                not isinstance(item, str) or not item.strip() for item in value
+            )
+        if empty:
+            raise DesignHistoryError(
+                f"import pair {str(pair.get('questionID') or '<missing>')!r} "
+                "requires a non-empty value; absence is not an importable answer"
+            )
+
     with write_session(checkout, payload.get("db") or None) as connection:
         _require_same_checkout(connection, checkout)
         form_pk = _upsert_form(
@@ -910,22 +935,29 @@ def record_import(payload: dict[str, Any]) -> dict[str, Any]:
                 omitted.append(question_id)
                 continue
             value = pair.get("value")
+            state = str(pair.get("state") or STATE_ANSWERED)
+            secret_bearing = contains_secret(_answer_text(value))
             if _insert_answer(
                 connection,
                 int(row["id"]),
-                state=str(pair.get("state") or STATE_ANSWERED),
+                state=state,
                 value=value,
                 source=IMPORT_SOURCE,
                 delivery="import",
                 event_id=provenance,
             ):
                 recorded.append(question_id)
+            elif secret_bearing:
+                # ``_insert_answer`` refuses the pair and writes the omission.
+                # It is not "already recorded": the answer was never stored.
+                omitted.append(question_id)
             else:
                 already.append(question_id)
         total = len(pairs)
-        if len(recorded) + len(already) == total:
+        stored = len(recorded) + len(already)
+        if stored == total:
             _set_form_state(connection, form_pk, STATE_ANSWERED)
-        elif recorded or already:
+        elif stored:
             _set_form_state(connection, form_pk, STATE_PARTIAL)
     return {
         "ok": True,

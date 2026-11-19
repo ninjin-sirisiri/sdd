@@ -93,6 +93,14 @@ tool output, and credentials are not part of this format; a pair containing a
 credential is excluded and only the omission is reported. Name both the log
 and the design case explicitly; the tool never scans directories.
 
+import procedure:
+  1. design-history import-preview --log FILE --case CASE
+     Review "importable" and the reason on every entry in "excluded".
+  2. design-history import-confirm --log FILE --case CASE
+     Re-reads the same FILE; compare its reported log.sha256 with step 1.
+
+An excluded pair is never imported, and a preview is not consent.
+
 exclusion reasons (importable is reported separately, with its own reason):
   ambiguous-question-id      two pairs use one ID for different content
   ambiguous-options          one option label is listed twice
@@ -281,6 +289,11 @@ def main(argv: list[str] | None = None) -> int:
         print(USAGE, end="")
         return EXIT_OK if args else EXIT_INVALID
     command, rest = args[0], args[1:]
+    # A per-command ``--help`` documents the same format and the same
+    # write/no-write split as the top-level help, and never requires --log.
+    if any(arg in ("--help", "-h") for arg in rest):
+        print(USAGE, end="")
+        return EXIT_OK
     handler = COMMANDS.get(command)
     if handler is None:
         print(f"unknown command: {command}", file=sys.stderr)
