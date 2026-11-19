@@ -25,6 +25,8 @@ spec. Do not refine a project that must be split as though it were one spec.
 
 Read the consuming repo's CONTEXT.md (or ask which file if CONTEXT-MAP.md exists), docs/adr/, README, related specs, and enough code that (1) the codebase can answer questions instead of the human, and (2) you can contradict the human when their claim and the code disagree. When the change follows an earlier phase or has a later consumer, read the specs, ADRs, implementation, and tests that establish the shared behavior.
 
+If this checkout records design history, also search the case before interviewing (see Confirm before saving). A recorded answer is evidence of what the person said, not a replacement for an approved document.
+
 ## Spec roadmaps
 
 When a goal is split into multiple specs, create or update a Spec roadmap before
@@ -54,8 +56,10 @@ canonical owning spec under Shared specification and later phases; the roadmap
 identifies ownership and dependencies, not a second authority for API or other
 contract details. Do not create placeholder individual spec files.
 
-Write `docs/sdd/specs/YYYY-MM-DD-<topic>-roadmap.md`. It uses the existing spec
-Target category, not a new synchronization category. After the Markdown edit,
+Write `docs/sdd/specs/YYYY-MM-DD-<topic>-roadmap.md`. Before writing, present the
+overall goal, completion criteria, non-goals, split, and order, and get explicit
+confirmation (see Confirm before saving). It uses the existing spec Target
+category, not a new synchronization category. After the Markdown edit,
 author the adjacent `.html` in a separate native file-edit operation with the
 current source digest, following Target companions. Validate from the consuming
 repository:
@@ -114,10 +118,14 @@ the human and wait. Do not treat a recommendation as accepted because the human
 did not object to a different question. Do not manufacture agreement for an item
 that blocks implementation.
 
-Questions and their presentation follow the dependencies and the human's
-preference. One question is fine when one decision is open; several are fine
-when they are independent. Do not use a fixed form, and do not wait for approval
-after each section.
+Ask only what changes the design and is still unsettled: user-facing behavior,
+acceptance criteria, important constraints, and contracts a later phase depends
+on. Combine independent topics into one round; sequence dependent ones, because
+the answer to the first changes the second. One question is fine when one
+decision is open. When a choice has meaningfully different options, present them
+with a recommendation and the reason, and accept a free-text answer that is none
+of them. Do not use a fixed form, do not wait for approval after each section,
+and do not set a minimum or maximum number of questions.
 
 ### Domain pressure
 
@@ -144,6 +152,92 @@ implementation when it is reversible and local. Do not keep rephrasing.
 
 If the human says to wrap up, stop. State remaining assumptions and unresolved
 items with their impact, then ask whether the understanding is shared.
+
+## Confirm before saving
+
+The interview settles the design. Before a spec or roadmap is written or
+rewritten, reconcile the planned content with the recorded answers and the
+conversation, and present it once for explicit confirmation. This confirmation
+does not replace the review of the saved document, and it is not the
+implementation approval. When the Implementation approval summary covers the
+same decisions, one presentation and one answer serve both; do not run a second
+approval round for the same content.
+
+### Recorded history
+
+Where this checkout records design history, search the case before writing:
+
+```text
+<pack-root>/scripts/design-history search --case <case>
+```
+
+Use `--query` for a topic and `--question-id` for one question. Search the case
+this design will use, and treat another case's answer as unrelated evidence
+until the person says it applies. Branch on the JSON `status`, never on an empty
+`results`:
+
+- `ok`: compare every planned statement that the history covers against the
+  recorded question and answer.
+- `no-matches` (exit 3): the recorder is healthy and nothing matched this
+  filter. Treat the point as unsettled only if the design still needs it; do
+  not conclude that no answer exists.
+- `no-database` (exit 4): recording never ran here. Say automatic recording is
+  absent and use the current conversation and approved documents.
+- `recording-unavailable` (exit 5): the recorder is stopped or failed, so an
+  empty result is not silence. Say so and recover before relying on it.
+- `unavailable` (exit 5): the store cannot be read. Stop and report the cause;
+  do not guess at the answers.
+- `invalid` (exit 2): the filter or request is wrong. Fix it; do not read it as
+  "no answers".
+
+Exit codes are 0 ok, 2 invalid, 3 no-matches, 4 no-database, 5 unavailable,
+6 Git-refused. `design-history status` reports when the store is Git-refused
+(exit 6): fix the ignore rule or untrack the database before recording.
+Recorded answers are excerpts of what the person said: evidence to reconcile
+agreement, not approval of a document. Never rewrite a raw record, and never
+treat your reading of an answer as the person's words or consent. Imported past
+logs (`--source design-history.import`) are excerpts the person chose; they are
+the same kind of evidence. Import only a named log and case: show
+`import-preview` pairs and exclusion reasons, and run `import-confirm` with the
+same arguments only after the person agrees that those pairs may be used.
+
+### New documents
+
+Before writing a new spec Markdown, present the goal, completion criteria,
+non-goals, and important constraints in chat once, and get explicit
+confirmation. For a roadmap, present the split and order too. Then save the
+Markdown and its companion, and keep the post-save approval step. A chat
+outline is not a saved document, and this confirmation does not replace asking
+the person to review the saved file.
+
+Keep each important undecided item undecided, with its impact and the point
+where it must be resolved. Never write an assumption as a settled fact. If
+nothing is unsettled, do not invent extra questions to fill the confirmation.
+
+### Existing documents
+
+Do not rewrite an existing spec or roadmap until the target, the meaning being
+changed, and the impact on dependent work are explicitly agreed. History is
+evidence for that reconciliation; it does not outrank an approved document and
+is never a second authority for the shared contract. When a shared-contract
+change is agreed, reflect it in the owning spec, then align the affected
+dependent specs and plans.
+
+An edit that does not change meaning, such as adding a link or fixing a typo,
+needs no new approval round. State what changes and why, then make it.
+
+### When a required record is missing
+
+If recording is enabled for the session and an answer the document depends on
+cannot be obtained, stop that document's save. Say which decision is missing,
+what depends on it, and how to recover: re-ask in a session where recording
+works, repair the recorder, or import a named past log. Do not save the document
+and do not back-fill the answer from the model later.
+
+On a host without recording support, or in a checkout where recording is not
+enabled, say plainly that automatic recording is absent. Use the current
+conversation and the approved documents for the same confirmation. Every
+protection above still applies except the recorder-specific stop.
 
 ## Shared specification and later phases
 
@@ -252,7 +346,7 @@ probe is already specified.
 
 **Bounded:** Short design in chat. Stop until an explicit yes. Before implementation, ask once whether to create an isolated git worktree (same prompt as sdd-execute Workspace). Already in a linked worktree, or a yes/no already recorded this conversation: do not ask. Yes: use using-git-worktrees, then implement there. No: implement in this checkout. Use test-driven-development when it fits the behavior and risk; TDD is not a gate for every bounded change. No spec file, no plan file.
 
-**Architectural:** If the interview did not already choose among 2–3 approaches, propose them now, recommended first. Present the settled design once; do not wait for approval after each section. Then write `docs/sdd/specs/YYYY-MM-DD-<topic>-design.md`, author the adjacent `.html` companion in a separate native file-edit operation with the current source digest, and run `python3 <pack-root>/scripts/html-docs check --paths docs/sdd/specs/YYYY-MM-DD-<topic>-design.md docs/sdd/specs/YYYY-MM-DD-<topic>-design.html`. Self-review: no placeholders, no contradictions, one interpretation per requirement, scope that fits one plan. Commit the spec plus this session's CONTEXT.md / ADR / HTML changes only after validation. Ask the human to review the spec file. Further spec edits are new commits (do not amend). After they approve, use sdd-plan. Do not use writing-plans.
+**Architectural:** If the interview did not already choose among 2–3 approaches, propose them now, recommended first. Present the settled design once; do not wait for approval after each section. Run Confirm before saving — for a new spec, the goal, completion criteria, non-goals, and important constraints; for an existing spec, the target, meaning changed, and impact. Then write `docs/sdd/specs/YYYY-MM-DD-<topic>-design.md`, author the adjacent `.html` companion in a separate native file-edit operation with the current source digest, and run `python3 <pack-root>/scripts/html-docs check --paths docs/sdd/specs/YYYY-MM-DD-<topic>-design.md docs/sdd/specs/YYYY-MM-DD-<topic>-design.html`. Self-review: no placeholders, no contradictions, one interpretation per requirement, scope that fits one plan. Commit the spec plus this session's CONTEXT.md / ADR / HTML changes only after validation. Ask the human to review the spec file. Further spec edits are new commits (do not amend). After they approve, use sdd-plan. Do not use writing-plans.
 
 Spec must record: classification, chosen approach, architecture, components, data flow, error handling, testing, goals/non-goals, consuming paths, any numeric defaults, negative requirements, or ordering guarantees that did not earn an ADR, and the shared contract when a later phase depends on it. Do not end the session with those only in chat.
 

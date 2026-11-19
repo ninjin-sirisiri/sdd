@@ -80,6 +80,158 @@ The built-in OpenCode `write` tool has no `bootstrap_paths` argument. For a miss
 
 The host registrations are opt-in. The pack does not install host configuration automatically. The examples live under `adapters/`; copy or link the required adapter and registration into the consuming repository without changing the paths expected by `html-docs doctor`.
 
+## Design History
+
+`sdd-design` can check a proposed spec against what the person actually answered
+in earlier design interviews in the same checkout. Recording is local, opt-in,
+and OpenCode V2 only in this version.
+
+### What is recorded
+
+For a design question the plugin presented, it records the question text, its
+header, the options in presentation order, and the selected value or free-text
+answer. Answered, cancelled, unanswered, held, and corrected are distinct
+states; a correction is a new revision, and the original answer is never
+rewritten. Each pair keeps its source: `opencode.form.created`,
+`opencode.form.replied`, `opencode.form.cancelled`, `opencode.plugin`, or an
+explicit import marked `design-history.import`.
+
+It does not record attachments, credentials, tool output, session transcripts,
+or any form the plugin did not present, and it sends nothing to an external
+service. A pair containing a credential is not stored; only the omission is
+reported.
+
+Storage is `<checkout>/.sdd/design-history.sqlite3`, plus any SQLite
+`-wal`, `-shm`, or `-journal` sidecars that exist beside it. Keep `.sdd/`
+Git-ignored and untracked: the store refuses to create a database whose path is
+not ignored, and it refuses a tracked database or tracked sidecar.
+
+Git exclusion is not access control. Anyone who can read the checkout can read
+the database, so never put a secret in a design question. Claude Code and
+Cursor recording, other worktrees, machines, or repositories, team sharing,
+external semantic search, and full session capture are out of scope.
+
+### Enable it in a consuming repository
+
+1. Link, do not copy, `adapters/opencode/design_history_plugin.ts` into the
+   consuming repository so the module keeps the pack's `scripts/design-history`
+   two directories above it:
+
+   ```bash
+   mkdir -p .opencode/plugins
+   ln -sfn "$SDD_PACK_ROOT/adapters/opencode/design_history_plugin.ts" \
+     .opencode/plugins/design_history_plugin.ts
+   ```
+
+   A copied module resolves `../../scripts/design-history` inside the
+   consuming repository and cannot write history. If a link is not usable,
+   point `SDD_DESIGN_HISTORY_CLI` at the pack's executable instead.
+2. Put the module in `.opencode/plugins/`. OpenCode V2.2.7 auto-discovers
+   `*.ts` files there; only direct children of that directory are loaded.
+3. Allow the agent to use the host `question` tool:
+
+   ```json
+   {
+     "permission": { "question": "allow" }
+   }
+   ```
+
+4. Optionally register an explicit entry with the OpenCode V2 `plugins` key. A
+   `plugins` entry must name a directory containing `index.ts`. A `.ts` file
+   path is ignored with "configured plugin path must be a directory":
+
+   ```json
+   {
+     "plugins": [".opencode/design_history"],
+     "permission": { "question": "allow" }
+   }
+   ```
+
+5. The module default-exports `{ id, setup }`. A V1 `(input) => hooks` function
+   is silently skipped, so a wrong shape looks enabled and records nothing.
+
+Without the `question` permission the form is never shown. The plugin reports
+that as a host refusal, not as a person declining to answer.
+
+The plugin presents design questions through the registered `design_question`
+tool and writes with `python3 <pack-root>/scripts/design-history record`. Set
+`SDD_PYTHON` only when `python3` is not the interpreter to use.
+
+### Search
+
+```bash
+./scripts/design-history search --case checkout-cancel
+./scripts/design-history search --case checkout-cancel --query 削除
+./scripts/design-history search --case checkout-cancel --question-id checkout-cancel.q1
+```
+
+Search is read-only and never creates the database. It prints one JSON object
+with `status`, `detail`, `database`, `recorder`, `filters`, `results`, and
+`omissions`. `--query` matches the question text, options, and answer,
+including Japanese; `--state`, `--source`, and `--limit` narrow further.
+
+Branch on `status`, never on an empty `results`:
+
+| Exit | `status` | Meaning |
+|---|---|---|
+| 0 | `ok` | Matching pairs were found. |
+| 3 | `no-matches` | The recorder is fine; nothing matched this filter. |
+| 4 | `no-database` | Recording never ran in this checkout. |
+| 5 | `recording-unavailable` | The recorder is stopped or failed; an empty result is not silence. |
+| 5 | `unavailable` | The database exists but cannot be read. |
+| 2 | `invalid` | The request or a filter is wrong. |
+
+`design-history status`, `record`, and `import-confirm` also exit `6` when the
+Git precheck refuses the database path. Exit `5` from `search` is not the same
+as exit `3`: only `3` means the recorder is healthy and the interview had no
+matching answer.
+
+### Import past logs
+
+Import is two explicit steps over one named file:
+
+```bash
+./scripts/design-history import-preview --log past-interview.json --case checkout-cancel
+./scripts/design-history import-confirm --log past-interview.json --case checkout-cancel
+```
+
+`import-preview` reads the log and the database only. It lists the pairs it
+would import and a machine-readable reason for every excluded pair, and writes
+nothing. `import-confirm` re-reads the same file and is the only command that
+saves an import; a preview is not consent. Name the log and the design case
+yourself: the tool never scans directories, and a typo files the pairs under the
+wrong case.
+
+Only the JSON `design-history-import` version 1 format is supported. A chat
+transcript is refused rather than guessed at, and an answer must be exactly one
+listed option or the pair must list no options. The source file is opened
+read-only and verified unchanged. `./scripts/design-history --help` documents
+the format and every exclusion reason.
+
+Imported pairs are evidence of what that past interview recorded, with the same
+standing as live pairs. They are not an approved specification.
+
+### Recovery
+
+- `status: no-database` (exit 4): recording was never enabled here. Enable the
+  plugin and the `question` permission, then start a new session. Earlier
+  conversations are not captured retroactively; import a named log if one
+  exists.
+- `status: recording-unavailable` (exit 5): the recorder stopped or failed.
+  `./scripts/design-history status` reports the store, the Git precheck, and the
+  latest recorder state. Fix the reported cause and re-ask in a new session.
+- Host refusal: the form was never shown. Allow `question` for the agent and
+  re-ask. This is not a cancelled answer.
+- Lost event or failed write: the plugin says the answer was not recorded. Do
+  not rely on that answer; re-ask.
+- Git refusal (exit 6): add `.sdd/` to `.gitignore`, untrack any committed
+  database, and retry. `./scripts/design-history git-check` reports the
+  precheck without writing.
+
+When a required answer cannot be obtained while recording is enabled,
+`sdd-design` stops the dependent document save, names what is missing, and
+states how to recover. It does not back-fill the answer later.
+
 ## Authoring Workflow
 
 1. Edit the Canonical Markdown in one native file-edit operation.
