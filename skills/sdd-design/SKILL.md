@@ -157,11 +157,9 @@ items with their impact, then ask whether the understanding is shared.
 
 The interview settles the design. Before a spec or roadmap is written or
 rewritten, reconcile the planned content with the recorded answers and the
-conversation, and present it once for explicit confirmation. This confirmation
-does not replace the review of the saved document, and it is not the
-implementation approval. When the Implementation approval summary covers the
-same decisions, one presentation and one answer serve both; do not run a second
-approval round for the same content.
+conversation, then present it once for explicit confirmation. This is a separate
+gate from the post-save document review and from implementation approval, and it
+does not replace either of them.
 
 ### Recorded history
 
@@ -170,6 +168,10 @@ Where this checkout records design history, search the case before writing:
 ```text
 <pack-root>/scripts/design-history search --case <case>
 ```
+
+Ask design questions through the recording form (`design_question`) when the
+host provides it, and use the case ID you searched. A question asked only in
+free chat is not recorded, so it cannot be reconciled later.
 
 Use `--query` for a topic and `--question-id` for one question. Search the case
 this design will use, and treat another case's answer as unrelated evidence
@@ -205,10 +207,9 @@ same arguments only after the person agrees that those pairs may be used.
 
 Before writing a new spec Markdown, present the goal, completion criteria,
 non-goals, and important constraints in chat once, and get explicit
-confirmation. For a roadmap, present the split and order too. Then save the
-Markdown and its companion, and keep the post-save approval step. A chat
-outline is not a saved document, and this confirmation does not replace asking
-the person to review the saved file.
+confirmation. For a roadmap, present the split and order too. For a truly new
+roadmap, confirm the split and order before saving and keep the approval after
+saving. A chat outline is not a saved document.
 
 Keep each important undecided item undecided, with its impact and the point
 where it must be resolved. Never write an assumption as a settled fact. If

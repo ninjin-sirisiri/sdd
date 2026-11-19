@@ -113,8 +113,10 @@ external semantic search, and full session capture are out of scope.
 
 ### Enable it in a consuming repository
 
-1. Link, do not copy, `adapters/opencode/design_history_plugin.ts` into the
-   consuming repository so the module keeps the pack's `scripts/design-history`
+Recording is opt-in per repository. Verified on OpenCode `v2.2.7`.
+
+1. Link, do not copy, `adapters/opencode/design_history_plugin.ts` into
+   `.opencode/plugins/` so the module keeps the pack's `scripts/design-history`
    two directories above it:
 
    ```bash
@@ -123,12 +125,13 @@ external semantic search, and full session capture are out of scope.
      .opencode/plugins/design_history_plugin.ts
    ```
 
-   A copied module resolves `../../scripts/design-history` inside the
-   consuming repository and cannot write history. If a link is not usable,
-   point `SDD_DESIGN_HISTORY_CLI` at the pack's executable instead.
-2. Put the module in `.opencode/plugins/`. OpenCode V2.2.7 auto-discovers
-   `*.ts` files there; only direct children of that directory are loaded.
-3. Allow the agent to use the host `question` tool:
+   OpenCode auto-discovers direct `.ts` children of `.opencode/plugins/`, so no
+   config key is needed. A copied module resolves `../../scripts/design-history`
+   inside the consuming repository and cannot write history; it logs
+   `recording is not active` with the missing path. If a link is not usable,
+   copy the module and set `SDD_DESIGN_HISTORY_CLI` to the pack's executable.
+
+2. Allow the agent to use the host `question` tool:
 
    ```json
    {
@@ -136,22 +139,46 @@ external semantic search, and full session capture are out of scope.
    }
    ```
 
-4. Optionally register an explicit entry with the OpenCode V2 `plugins` key. A
-   `plugins` entry must name a directory containing `index.ts`. A `.ts` file
-   path is ignored with "configured plugin path must be a directory":
+   Without it the form is never shown, and the plugin reports a host refusal,
+   not a person declining to answer.
 
-   ```json
-   {
-     "plugins": [".opencode/design_history"],
-     "permission": { "question": "allow" }
-   }
-   ```
+3. The module default-exports `{ id, setup }`. A module that default-exports a
+   V1 `(input) => hooks` function, or exports only named bindings, fails to load
+   with `Plugin must export a default definition with an id and an effect or
+   setup function`, and records nothing.
 
-5. The module default-exports `{ id, setup }`. A V1 `(input) => hooks` function
-   is silently skipped, so a wrong shape looks enabled and records nothing.
+An explicit project entry uses the `plugins` array in `opencode.json`. Each entry
+must name a **directory**, not a file; a `.ts` file path is refused at load:
 
-Without the `question` permission the form is never shown. The plugin reports
-that as a host refusal, not as a person declining to answer.
+```text
+WARN configured plugin path must be a directory
+  target=.opencode/plugins/design_history_plugin.ts
+```
+
+The directory is loaded through its `index.ts`. A `package.json` is not
+required: a directory containing only `index.ts` loads, and a directory whose
+`package.json` points at a different entry does not override `index.ts`.
+
+```json
+{
+  "plugins": [".opencode/design_history"],
+  "permission": { "question": "allow" }
+}
+```
+
+```ts
+// .opencode/design_history/index.ts
+export { default } from "../../adapters/opencode/design_history_plugin.ts"
+```
+
+Auto-discovery needs no entry at all and is the simplest setup. The older
+`plugin` key also loads such a directory on this build, but `plugins` is the
+documented V2 key; use one or the other, not both.
+
+Verify with `./scripts/design-history status`: `recorder.status` should be
+`active` after the host loads the plugin, and `git.ignored` must be `true`.
+`status` reports the store, the Git precheck, and the latest recorder state; it
+never writes.
 
 The plugin presents design questions through the registered `design_question`
 tool and writes with `python3 <pack-root>/scripts/design-history record`. Set
@@ -184,7 +211,9 @@ Branch on `status`, never on an empty `results`:
 `design-history status`, `record`, and `import-confirm` also exit `6` when the
 Git precheck refuses the database path. Exit `5` from `search` is not the same
 as exit `3`: only `3` means the recorder is healthy and the interview had no
-matching answer.
+matching answer. Exit `6` from `search` is not expected, because search never
+opens the store for writing; when a write is refused, `status` and `record`
+report `status: refused` with a reason and the ignore guidance.
 
 ### Import past logs
 
