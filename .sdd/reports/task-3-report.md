@@ -6,9 +6,9 @@
 `c2b3d21` (`feat: confirm design intent against recorded history before saving
 documents`), `176dc56`, `405a08e`, `31becae` (`docs: correct host registration
 and record the final design-history trial`), and `3339221` / `77331c6`
-(evaluation corrections), on top of Task 2's `1f8be29`. This report and its own
-range corrections are separate report commits; the code and documentation
-content is unchanged after `77331c6`.
+(evaluation corrections), on top of Task 2's `1f8be29`. Later commits (`1a41ba8`, `3339221`, `77331c6`, `897e08d`, and the
+report-only commits) change only how these results are cited, never a skill,
+README, or evaluation rule.
 
 The skill, README, and evaluation are in place, and the judgment layer was
 exercised on seven scenarios with the final skill text. Two README claims that
