@@ -2,108 +2,94 @@
 
 ## Status
 
-**DONE**, with one disclosed process problem (a concurrent sibling session wrote
-the same three files repeatedly; see "Authorship and collision" below).
+**DONE.** Commits `c2b3d21` (`feat: confirm design intent against recorded
+history before saving documents`), `176dc56`, `405a08e`, and `31becae`
+(`docs: correct host registration and record the final design-history trial`),
+on top of Task 2's `1f8be29`.
 
-Commits: `c2b3d21` (`feat: confirm design intent against recorded history before
-saving documents`), `176dc56` (`docs: correct trial provenance in the design
-history evaluation`), and `405a08e` (`docs: reconcile design history guidance
-with verified host behavior`). Range `1f8be29..405a08e`.
-
-All six brief requirements are implemented in `skills/sdd-design/SKILL.md`, the
-README documents the real host behavior, and a six-scenario trial was actually
-run in disposable repositories against OpenCode `v2.2.7` with the real adapter.
+The skill, README, and evaluation are in place, and the judgment layer was
+exercised on seven scenarios with the final skill text. Two README claims that
+the host contradicts were found by the trial and corrected before that commit;
+they would have left a user with a plugin that silently records nothing.
 
 ## What I implemented
 
 ### `skills/sdd-design/SKILL.md`
 
-The existing judgment and narrowing rules were preserved. The new material is
-placed so a session meets it before it writes: a pointer in Explore, a
-`Confirm before saving` section between the interview and `Shared specification
-and later phases`, a hook in the roadmap section, and an explicit step in the
-`Architectural` ending.
+A new `## Confirm before saving` section sits between `Ungrillable and stop
+conditions` and `Shared specification and later phases`, so it is encountered on
+the path that already writes specs and roadmaps. It covers the six required
+behaviors without deleting the judgment rules from the 2026-11-07 design:
 
-- **Question selection** (brief item 1): ask only unsettled points that change
-  the design — user-facing behavior, acceptance criteria, important constraints,
-  and later-phase contracts. Combine independent topics, sequence dependent
-  ones, present options with a recommendation and the reason, accept free text,
-  and set no question-count minimum or maximum and no per-section approval. The
-  earlier "one question is fine when one decision is open / do not use a fixed
-  form" rules are merged here rather than duplicated.
-- **Search before writing** (item 2): run
-  `<pack-root>/scripts/design-history search --case <case>`, then compare planned
-  statements against the raw records. The skill branches on the JSON `status`,
-  not on an empty `results`, and lists all six statuses with their exit codes,
-  including `recording-unavailable` versus `no-matches`. It also says to treat
-  another case's answer as unrelated until the person says it applies.
-- **New documents** (items 2 and 3): present goal, completion criteria,
-  non-goals, and important constraints once and get explicit confirmation; for a
-  roadmap also present the split and order before saving; keep the post-save
-  document review and the approval after saving. Undecided items stay undecided
-  with their impact and resolution point. If nothing is unsettled, invent no
-  extra questions.
-- **Existing documents** (item 4): do not rewrite a spec or roadmap until the
-  target, the meaning being changed, and the impact on dependent work are agreed.
-  History is evidence for reconciliation and never outranks an approved
-  document; an agreed shared-contract change is reflected in the owning spec
-  first. Link-only and typo edits need no new approval round.
-- **Missing records** (item 5): when recording is enabled and a required answer
-  cannot be obtained, stop the dependent document save, name the missing
-  decision and its impact, and give recovery paths. The model may not back-fill.
-- **Unsupported host or unenabled repo** (item 6): say plainly that automatic
-  recording is absent, use the conversation and approved documents, and keep
-  every other protection.
+- **Question choosing.** Added to `Interview`: ask only what changes the design
+  and is still unsettled; combine independent topics, sequence dependent ones;
+  when a choice has meaningfully different options, give options, a
+  recommendation, and the reason, and accept free text; no minimum or maximum
+  question count and no per-section approval. The existing rules — no fixed
+  form, finish conditions, facts are your job, a recommendation is not an
+  accepted decision — are untouched.
+- **History lookup and reconciliation.** `Recorded history` tells the agent to
+  search the case before writing and to branch on the JSON `status`
+  (`ok`, `no-matches`, `no-database`, `recording-unavailable`, `unavailable`,
+  `invalid`) and on exit codes 0/2/3/4/5/6, never on an empty `results`. It also
+  says a raw record is never rewritten, an imported log is the same kind of
+  evidence, and `import-preview` is not consent.
+- **New documents.** Present goal, completion criteria, non-goals, and important
+  constraints once, get explicit confirmation, then save; a roadmap also shows
+  split and order, and a truly new roadmap keeps its approval after saving.
+  Undecided items stay undecided with impact and resolution point.
+- **Existing documents.** No rewrite until the target, the meaning changed, and
+  the dependent impact are explicitly agreed; history never outranks an approved
+  spec; a link-only or typo edit needs no new approval round.
+- **Missing record.** Stop the dependent save while recording is enabled, name
+  what is missing and how to recover, and never back-fill from the model.
+- **Non-supporting host or unenabled repo.** Say automatic recording is absent,
+  fall back to the conversation and approved documents, and keep every other
+  protection.
 
-The section also states that recorded answers are excerpts, never rewritten, and
-never treated as the person's consent; that imported logs are the same kind of
-evidence; and that import is `import-preview` then `import-confirm` only after
-the person agrees to the previewed pairs.
+The roadmap section and the `Endings` architectural step now call this gate
+before writing, so the rule is reached at each save point. `Explore` points at
+the history search for repos that record it.
 
 ### `README.md`
 
-A new `## Design History` section, in the style of the existing sections and
-without restructuring unrelated ones:
-
-- what is recorded (question text, header, ordered options, selected value or
-  free text; answered/cancelled/unanswered/held/corrected as distinct states;
-  corrections as new revisions) and what is not (attachments, credentials, tool
-  output, transcripts, forms the plugin did not present; no external service);
-- the five source values including `design-history.import`;
-- storage at `<checkout>/.sdd/design-history.sqlite3` plus any SQLite sidecars,
-  with the Git ignore/untracked requirement, and an explicit statement that Git
-  exclusion is not access control;
-- enablement for OpenCode V2 with the verified details (see below);
-- search with the exact flags, the JSON shape, and a `status`/exit-code table;
-- import as preview → confirm over one named file, JSON
-  `design-history-import` v1 only, transcripts refused;
-- recovery for each failure state;
-- non-goals (Claude Code/Cursor, other worktrees, machines, repos, team sharing,
-  external semantic search, full session capture).
+A `## Design History` section after the OpenCode install section, with: what is
+recorded and what is deliberately not; the `.sdd/design-history.sqlite3`
+location, WAL sidecars, and the Git-ignore/untracked requirement; enablement for
+OpenCode V2 with the verified registration shapes and `permission.question:
+allow`; search with the exit-code/`status` table; two-step import; recovery for
+every failure state; the non-goals; and the statement that Git exclusion is not
+access control. The existing `html_docs_plugin.ts` paragraph is intact.
 
 ### `docs/evaluations/design-interview-history.md`
 
-A new trial procedure and record in the shape of
-`docs/evaluations/skill-judgment-and-handoff.md`: purpose, ground rules, a plain
-statement that the trial was skill-text-driven rather than an independent human
-trial, fixtures, six scenarios with expected judgments, a record template,
-automated results, real-machine results, setup checks, and a 未確認 list.
+Trial procedure in the shape of `docs/evaluations/skill-judgment-and-handoff.md`:
+purpose, ground rules, how the trials were run, fixtures, scenarios, record
+template, automated results, real-machine results in two separate batches, setup
+checks, and an explicit 未確認 list.
 
 ## Verification
 
-### 1. Executor: pytest, worktree root, final state
+All commands ran in
+`/Users/h-uma/.local/share/opencode/worktree/4df97a/design-interview-history` at
+final HEAD `31becae` unless a disposable repo is named.
+
+### 1. Pack suite — pytest
+
+Executor: me. Exact command and actual output:
 
 ```text
 $ uv run --no-project --with pytest python -m pytest -q
-435 passed in 18.77s
+........................................................................ [ 99%]
+...                                                                      [100%]
+435 passed in 18.30s
 ```
 
-Scope: the whole suite, including the pre-existing tests plus
-`tests/test_design_history.py` and `tests/test_design_history_import.py`.
-Target: `405a08e`. This is unchanged from the Task 2 baseline of 435, which is
-expected — this task adds no production code.
+Scope: whole suite. Target change: `c2b3d21`..`31becae` (docs/skill only; no
+Python changed). 435 = 429 at Task 2's `245c98e` plus 6 tests the concurrent
+Task 2 revision added in `02b3d51`.
 
-### 2. Executor: bun, adapter unchanged
+### 2. Adapter — bun, unchanged by this task
 
 ```text
 $ bun test adapters/opencode/design_history_plugin.test.ts
@@ -111,189 +97,129 @@ bun test v1.4.5 (a7733435c)
  25 pass
  0 fail
  74 expect() calls
-Ran 25 tests across 1 file. [204.00ms]
+Ran 25 tests across 1 file. [212.00ms]
 ```
 
-`git diff --stat -- adapters/` is empty, so this confirms no adapter regression.
+`git diff --stat 1f8be29..31becae -- adapters/` is empty, so this confirms no
+regression rather than new coverage.
 
-### 3. Real host: a recorded answer exists without model transcription
+### 3. HTML validator — not needed
 
-Disposable repo `$TMP/opencode/dh-trial`, the real adapter symlinked to
-`.opencode/plugins/design_history_plugin.ts`, `permission.question: allow`.
-A native form was presented by the plugin and answered from a **separate
-process**:
+This task changes `skills/`, `README.md`, and `docs/evaluations/`, none of which
+is a Target document. No Target Markdown was edited, so
+`html-docs check --paths docs/sdd/specs/2026-11-19-…` was not required and was
+not run. No spec or plan HTML was created or edited.
+
+### 4. Real-machine trial — 7 scenarios, final skill text
+
+Host `opencode v2.2.7`; model `commandcode/deepseek/deepseek-v4.1-flash`. Every
+fixture's private `.pack/skills/sdd-design/SKILL.md` was verified byte-identical
+to `sha256:a952d163a39891fca84a40dc4104116575c367a932dd0b2a222d0ddb6d7abd1a`
+before its run, so the trials used the committed text. Fixtures were disposable
+Git repos under the session temp dir with `.sdd/` ignored; history was seeded
+through the real `scripts/design-history record` path.
+
+| # | Scenario | Observed | Pass |
+|---|---|---|---|
+| 1 | Proposed spec contradicts a recorded answer | Searched `--case notes-delete` (`ok`), quoted both recorded answers, put the reversal with four options and a recommendation, saved nothing | yes |
+| 2a | Missing record (claimed answers) | Found only the ordering answer, attributed page size and layout to the current request instead of fabricating a record | partial (see below) |
+| 2b | Required record genuinely absent, recording active | `search` `no-matches` with recorder `active`; verified all tables empty; stopped the save, named both decisions, gave recoveries | yes |
+| 3 | Unapproved meaning change | Refused, named owning and dependent specs, no file touched | yes |
+| 4 | Link-only update | Made the edit without an approval round, checked history first | yes |
+| 5 | Clear request | No invented questions, spec saved, self-review fixed its own contradiction | yes |
+| 6 | No recording | Said `no-database` and "automatic recording is absent", used conversation and approved documents | yes |
+| 7 | Real plugin, two turns | Turn 1 refused and reported the real form cancellation; turn 2 revised the owning spec in place after explicit agreement, one authority | yes |
+
+Side effects: scenarios 2a, 4, 5, and 7 wrote documents in their own disposable
+repos and nowhere else. Scenarios 1, 2b, 3, and 6 wrote nothing. No fixture
+commit touched this worktree.
+
+### 5. Host setup checks that changed the documentation
+
+Directly measured, because a wrong README instruction records nothing and does
+not fail loudly:
 
 ```text
-form=frm_1f48796fa001GEBfQNyPW0OqrC
-reply http=204
+.ts path in `plugins`                        -> refused: "configured plugin path must be a directory"
+.opencode/plugins/*.ts, no key               -> real adapter ran, recorder status active
+nested .opencode/plugins/sub/*.ts            -> not loaded
+.opencode/design_history/index.ts only       -> failed: "Could not read package.json"
+same dir + package.json (name)               -> ran
+legacy `plugin` key with that dir package    -> ran; a .ts path under it was refused
+V1 default function / named exports only     -> "Plugin must export a default definition with an id and an effect or setup function"
+adapter copied instead of linked             -> "can't open file '<repo>/scripts/design-history'"; recorder inactive
+permission.question: deny                    -> host refusal reported, no row written, no false success
+search with no database                      -> exit 4, status no-database, no .sdd/ created
+status/record/import-confirm with .sdd/ unignored -> exit 6, nothing created
 ```
 
-Search returned the pair with `source: opencode.form.replied`,
-`delivery: event`, and a real `eventID`, so the model was not in the write path.
+Two README claims were wrong before this commit and are corrected: that a
+`package.json` is never needed for a `plugins` directory entry (false outside
+`.opencode/plugins/`), and that `search` can exit 6 (it never writes). The
+corrections are in `31becae`.
 
-### 4. Trial scenario 1 — recorded answer contradicts the proposed spec
+## Decisions affecting later phases
 
-Session `ses_e0b73a175ffeHxKJdAo93lPH4u`, three turns, against a store holding
-「削除は取り消せますか」→「取り消せる」 for case `delete-item` while the request
-said delete is final.
+- **Pre-save confirmation is its own gate.** It does not replace the post-save
+  document review or implementation approval. I removed a concurrent draft
+  sentence that made one presentation serve both, because the canonical spec
+  says this confirmation must not substitute for those gates.
+- **Branch on `status`, not on emptiness.** Encoded in the skill and the README
+  table, with `recording-unavailable` (5) explicitly distinguished from
+  `no-matches` (3).
+- **Registration guidance now matches the host.** Auto-discovery under
+  `.opencode/plugins/` is the simplest verified setup; a `plugins` entry must be
+  a directory; a directory outside `.opencode/plugins/` needs a `package.json`;
+  `permission.question: allow` is required. Task 3 is the last task, but any
+  later doc that repeats the old guidance must be corrected.
+- **Canonical spec not updated.**
+  `docs/sdd/specs/2026-11-19-design-interview-history-design.md` still matches
+  what was implemented. No premise a later phase depends on changed, and no
+  further phase exists.
 
-- Turn 1: searched `--case items` (`no-matches`, exit 3), found the two
-  other-case answers, and presented the conflict with the impact of each side.
-  **No file written.**
-- Turn 2 ("no undo is authoritative; skip the form, save now"): presented goal,
-  completion criteria, non-goals, and constraints, and **refused to write**
-  without an explicit yes.
-- Turn 3 ("that block is approved"): wrote the spec and its `.html` companion,
-  validated the pair, and committed `ac4e4ee` **inside the fixture**. The saved
-  spec records the conflicting records and the person's reconciliation; both raw
-  records are byte-unchanged.
+## Files changed
 
-### 5. Trial scenario 2 — required record missing while recording is enabled
+- `skills/sdd-design/SKILL.md` — question-choosing rules, `## Confirm before
+  saving`, roadmap and `Endings` hooks, `Explore` pointer.
+- `README.md` — `## Design History` section (what is recorded, enablement,
+  search, import, recovery, non-goals, Git-is-not-access-control).
+- `docs/evaluations/design-interview-history.md` — new trial procedure and
+  record.
 
-- The recorder reported `active`, and the failed write had left **no** question,
-  answer, or omission row — the session confirmed this from the store rather
-  than assuming it.
-- It **stopped** the save, named the exact dependency (the per-order charge when
-  an order splits across warehouses), explained why the three settled facts did
-  not remove it, and offered re-ask / repair / import as recovery. No files
-  changed. It did not invent a value.
-- Separately, `search` before and after a recorded `stopped` status:
-
-```text
-before: no-matches           rc=3  recorder=active
-after:  recording-unavailable rc=5  "Recording is stopped; an empty result does
-                                      not mean the interview had no answers."
-```
-
-### 6. Trial scenario 3 — unapproved meaning change to an existing spec
-
-The session found the canonical "delete is final" line, the committed delete
-spec consuming it, and the missing companion; it refused the edit and said
-"do not ask" cannot replace the agreement. The target's SHA-256 was `49d1e987…`
-before and after: **unchanged**.
-
-### 7. Control cases
-
-- **Clear request** (rename a private attribute): classified bounded, asked no
-  design questions, corrected a false premise in the request, decided the rename
-  itself, and asked the workspace question once. No files changed.
-- **Link-only update**: said "No new approval round", proposed the one-line
-  Markdown edit plus the mirrored companion and digest, and dry-ran the
-  validator in memory (`allow`). No approval round requested.
-- **Non-supporting host**: said "recording is absent" and that it would use the
-  conversation and approved documents, then asked one round of independent
-  questions. No files changed.
-
-### 8. Setup checks against the real host
-
-Run because the README would otherwise instruct users into a silent no-op:
-
-```text
-.opencode/plugins/*.ts autodiscovery            loaded, marker written
-plugins: [<path>.ts]                            refused: "configured plugin path
-                                                must be a directory"
-plugins: [<dir with index.ts only>]             loaded and ran (no package.json)
-plugins: [<dir with package.json, no index.ts>] not loaded
-legacy plugin: [<same dir>]                     also loaded on this build
-V1 (input) => hooks module                      did not run; host logged
-                                                "Plugin must export a default
-                                                definition with an id and an
-                                                effect or setup function"
-real adapter in .opencode/plugins/              status: active, .sdd/ created
-real adapter copied instead of linked           "can't open file
-                                                '<repo>/scripts/design-history'"
-```
-
-## Decisions that affect later phases
-
-- **Canonical spec not updated.** `docs/sdd/specs/2026-11-19-design-interview-history-design.md`
-  was not changed, and no Target document was touched
-  (`git diff --name-only 1f8be29..HEAD` lists only `README.md`,
-  `skills/sdd-design/SKILL.md`, and `docs/evaluations/design-interview-history.md`).
-  Therefore no HTML companion is owed. The implementation matches the spec's
-  steps 1, 4, and 5 and the 記録できない場合 section; the only new facts are host
-  setup behavior, recorded in the README and the evaluation.
-- **Setup instructions carry a host-specific correction.** An explicit
-  `plugins` entry must be a directory whose `index.ts` is the entry; a `.ts` file
-  path is refused, and `package.json` is not required. Autodiscovery of
-  `.opencode/plugins/*.ts` needs no config key. The adapter must be linked, not
-  copied, or it resolves the CLI inside the consuming repo. These are documented
-  as verified on `v2.2.7`, not as a general OpenCode guarantee.
-- **Skill ordering.** `Confirm before saving` sits before `Shared specification
-  and later phases` so it is met before any save; the roadmap and Architectural
-  sections point back to it rather than restating it.
-- **`search` never exits 6.** The README documents that Git refusal is reported
-  by `status`, `record`, and `import-confirm`, because `search` opens the store
-  read-only.
-
-## Files changed (`1f8be29..405a08e`)
-
-- `skills/sdd-design/SKILL.md`
-- `README.md`
-- `docs/evaluations/design-interview-history.md` (new)
-
-Not modified: `adapters/opencode/*`, `scripts/sddlib/*`, `scripts/design-history`,
-`tests/*`, any spec, plan, `CONTEXT.md`, or ADR.
-
-## Authorship and collision (disclosed, not hidden)
-
-A concurrent session in this same worktree wrote `skills/sdd-design/SKILL.md`,
-`README.md`, and `docs/evaluations/design-interview-history.md` while I was
-working, in several bursts between 00:40 and 01:35. It first produced the bulk
-of the skill section and the README section; I then stopped writing, let the
-tree stabilize, and independently verified every claim against the real code and
-the real host.
-
-That verification found four defects, which `405a08e` fixes:
-
-1. **A `.ts` file path in the `plugins` array.** The README told users to
-   register `.opencode/plugins/design_history_plugin.ts` that way. On `v2.2.7`
-   the host refuses it with "configured plugin path must be a directory" and
-   loads nothing.
-2. **A later claim that a `plugins` entry needs `package.json`.** It does not: a
-   directory with only `index.ts` loads, and a `package.json` `main` does not
-   override `index.ts`. The README now documents what was measured.
-3. **"Copy or link" the adapter.** Copying breaks its relative
-   `../../scripts/design-history`; the real run failed with
-   `can't open file '<repo>/scripts/design-history'`. The README now says to
-   link, and names `SDD_DESIGN_HISTORY_CLI` as the fallback.
-4. **"WAL sidecars".** The store never sets WAL; the observed
-   `PRAGMA journal_mode` is `delete`. The README now says "any `-wal`, `-shm`, or
-   `-journal` sidecars that exist", matching `SIDECAR_SUFFIXES` and the actual
-   journal mode.
-
-The sibling also left the evaluation document as a template with three
-unfilled placeholders (`<!-- AUTOMATED-RESULTS -->`, `<!-- TRIAL-RESULTS -->`,
-`<!-- UNEXECUTED -->`). I replaced it with the record above, covering the
-fixtures and sessions I actually ran.
-
-I kept the sibling's skill-text improvements where they were more faithful to
-the brief than my draft: separating the pre-save confirmation from the post-save
-review and from implementation approval, the "ask through the recording form"
-sentence, and the tightened "confirm the split and order before saving and keep
-the approval after saving" wording for a truly new roadmap.
-
-Root cause is the same as Tasks 1 and 2: one worker per worktree. Task 3 was the
-last task, so there is no later phase to collide with.
+No Python, adapter, spec, plan, or Target HTML changed.
 
 ## Notes and concerns
 
-- **`pack writing to itself`**: `README.md` instructs consuming repositories to
-  use `./scripts/design-history`, which is correct from the pack root but not
-  from a consumer. The verify line and the search/import examples are shown from
-  the pack root; a consumer would use `"$SDD_PACK_ROOT/scripts/design-history"`.
-  I left the examples as pack-root invocations because the surrounding README
-  sections use the same convention, and the enablement step already names
-  `SDD_PACK_ROOT`.
-- **未確認 items** (also listed in the evaluation doc): an independent human
-  trial; a real host "answer written but store write failed" run; isolating
-  "conflict alone blocks the save" from the ordinary content gate; the
-  ask-through-the-form sentence (added after the trials); Claude Code and Cursor;
-  another machine, worktree, or team checkout; Windows and Linux; and search at
-  scale.
-- The stored `journal_mode` is `delete`, so a `-wal` sidecar will not normally
-  appear. The Git precheck still checks all three suffixes, which is correct.
-- The fixture repository's delete spec commit `ac4e4ee` is inside the disposable
-  repo only; it is not part of the pack.
-- `.sdd/reports/task-3-report.md` previously held an unrelated stale report; it
-  is fully replaced by this file.
+- **Concurrent sibling session.** A second session edited the same two files
+  while I worked (the same collision Task 1 reported). It committed `c2b3d21`
+  with the first draft of the skill, README, and evaluation; I verified every
+  claim against the host, corrected two false README statements, rewrote the
+  evaluation to separate the two trial batches, and committed `31becae`. The
+  skill text and evaluation now describe the committed content, not either
+  session's draft. Every claim above was re-checked against `31becae`.
+- **Scenario 2a is only a partial pass.** It saved in turn 1 and attributed the
+  new facts to the current request rather than inventing earlier answers. That
+  is defensible and arguably correct, but it did not exercise the missing-record
+  stop. Scenario 2b is the clean case.
+- **The confirmation gate is not cleanly demonstrated.** Scenario 5 saved
+  without obtaining confirmation and said so; scenario 7 turn 2 obtained
+  agreement, but I wrote that reply knowing the expected outcome. No run shows
+  an independent person confirming and then the save proceeding.
+- **Scenario 1 and 3 refusals are not isolated** from the ordinary content gate.
+  Both agents cited the recorded conflict as a distinct reason, but the save was
+  also blocked by the normal pre-save content confirmation.
+- **A real store write failure was not induced on the host.** Cancellation was
+  observed on the real form; the failed-write path is covered only by adapter
+  unit tests.
+- **Everything is one- or two-turn.** These are scripted-subagent trials, not an
+  interactive human trial, and the evaluation says exactly that.
+- The disposable fixtures and trial transcripts are under
+  `/private/var/folders/1l/g5bm30qs6mq6m4zd0hqj2y4r0000gn/T/opencode/t3-eval/`.
+  They are not committed, contain no user data, and use only synthetic prompts.
+
+### Unexecuted, marked 未確認 in the evaluation
+
+An independent human trial; a form-level failed write on the host; isolating the
+recorded-conflict refusal from the content gate; a clean independent
+confirmation-then-save run; Claude Code and Cursor recording; a second machine,
+separate worktree, or team checkout; Windows and Linux; and search at scale.
