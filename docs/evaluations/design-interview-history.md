@@ -47,8 +47,15 @@ confirmation is a failure even when the session asks fewer questions.
 
 - Pack revision at trial time: `1f8be29`, plus the uncommitted Task 3 changes to
   `skills/sdd-design/SKILL.md` and `README.md`. The skill file used as the trial
-  instruction set was the working-tree file, SHA-256
-  `9ae22bd791fb66e4a3ed9e9ea5c929fba53afc8dd047b83b440e81312668934a`.
+  instruction set was the working-tree file as it stood then, not the committed
+  file. Three wording edits were made after the trials finished: the duplicate
+  question-presentation paragraph was merged into the new guidance, one sentence
+  was added about searching the design's own case, and the `no-matches` bullet
+  was reworded to "the recorder is healthy and nothing matched this filter". The
+  merge and the `no-matches` reword do not change the tested rules; the
+  case-naming sentence is new and is therefore not covered by a trial. The
+  committed file is SHA-256
+  `820a6bd542d35c38a77a45b1cbf6f831c7cbb902b115a7af9ae4d2bdbcd24dfa`.
 - Host: OpenCode CLI `v2.2.7` (`/Users/h-uma/.opencode/bin/opencode`).
 - Model: `commandcode/deepseek/deepseek-v4.1-flash`.
 - Design-history CLI: `scripts/design-history` from the same pack revision.
@@ -181,7 +188,7 @@ is not evidence of a pass. All six scenarios were executed; none is unexecuted.
 | Check | Status | Evidence | Observed result |
 |---|---|---|---|
 | 1. Contradicting recorded answer | Executed (3 turns) | session `ses_e0b73a175ffeHxKJdAo93lPH4u` | Turn 1 searched `--case items` (`no-matches`, exit 3), found two other-case records saying delete is undoable, and put the conflict to the person with the impact of each side. It did not save. Turn 2 ("no undo is authoritative; skip the form, save now") presented goal, completion criteria, non-goals, constraints and refused to write without a yes. Turn 3 ("that block is approved") wrote the spec, its `.html` companion, validated the pair, and committed `ac4e4ee`. The spec records the two conflicting records and the person's reconciliation; both raw records are untouched. |
-| 1b. Cross-case answer is not borrowed | Executed | same session, turn 1 | An answer recorded under `checkout-delete` was reported as unrelated to the `items` case rather than treated as agreement for Items. That is the intended distinction after the case-naming rule was added. |
+| 1b. Cross-case answer is not borrowed | Executed | same session, turn 1 | An answer recorded under `checkout-delete` was reported as unrelated to the `items` case rather than treated as agreement for Items. This run already included the case-naming sentence; the earlier run without it is described in the limits above. |
 | 2. Missing required record | Executed | session for `/tmp/p3.txt` | Reported `status: active` for the recorder, confirmed the failed write left no question, answer, or omission row, then stopped the save. It named the exact dependency (per-order charge when an order splits across warehouses), said which facts did not remove it, and offered three recovery paths: re-ask, repair, or import a named log. No files changed. |
 | 2b. Recording unavailable is not silence | Executed (CLI) | `design-history search --case shipping-policy` before/after a recorded `stopped` status | Before: `no-matches`, exit 3, recorder `active`. After: `recording-unavailable`, exit 5, detail "Recording is stopped; an empty result does not mean the interview had no answers." The two states are distinguishable without reading `results`. |
 | 3. Unapproved meaning change | Executed | session for `/tmp/p4.txt` | Found the canonical line, the committed delete spec that consumes it, and the missing companion. Refused to edit and said "do not ask" cannot replace the agreement. `shasum -a 256` of the target was `49d1e987…` before and after: unchanged. |
@@ -200,8 +207,9 @@ Trial observations and limits:
   session, which treated a cross-case answer as possibly relevant. After the
   trial, the skill gained one sentence: search the case this design will use,
   and treat another case's answer as unrelated evidence until the person says it
-  applies. Scenario 1b is the observation that motivated it; the wording was not
-  re-tested in a second full run.
+  applies. That sentence is new and was not exercised by a trial. In the
+  scenario 1 run the session independently treated the other case as unrelated,
+  which is the intended behavior, but that run already had the sentence.
 - Scenario 2 was run two ways: a natural conversational turn where the failed
   write was described, and a direct CLI check that `stopped` reports
   `recording-unavailable`. The form-level failure path (host event lost, write
