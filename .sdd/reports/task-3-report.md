@@ -5,8 +5,8 @@
 **DONE.** Commits `c2b3d21` (`feat: confirm design intent against recorded
 history before saving documents`), `176dc56`, `405a08e`, `31becae`
 (`docs: correct host registration and record the final design-history trial`),
-`1a41ba8` (report), `3339221`, and `77331c6` (evaluation corrections), on top of
-Task 2's `1f8be29`. Final HEAD is `77331c6`.
+`1a41ba8` (report), `3339221`, `77331c6` (evaluation corrections), and `589ed08`, on top of
+Task 2's `1f8be29`. Final HEAD is `589ed08`.
 
 The skill, README, and evaluation are in place, and the judgment layer was
 exercised on seven scenarios with the final skill text. Two README claims that
@@ -73,7 +73,7 @@ checks, and an explicit 未確認 list.
 
 All commands ran in
 `/Users/h-uma/.local/share/opencode/worktree/4df97a/design-interview-history` at
-final HEAD `77331c6` unless a disposable repo is named.
+final HEAD `589ed08` unless a disposable repo is named.
 
 ### 1. Pack suite — pytest
 
@@ -86,7 +86,7 @@ $ uv run --no-project --with pytest python -m pytest -q
 435 passed in 18.30s
 ```
 
-Scope: whole suite. Target change: `c2b3d21`..`77331c6` (docs/skill only; no
+Scope: whole suite. Target change: `c2b3d21`..`589ed08` (docs/skill only; no
 Python changed). 435 = 429 at Task 2's `245c98e` plus 6 tests the concurrent
 Task 2 revision added in `02b3d51`.
 
@@ -101,7 +101,7 @@ bun test v1.4.5 (a7733435c)
 Ran 25 tests across 1 file. [212.00ms]
 ```
 
-`git diff --stat 1f8be29..77331c6 -- adapters/` is empty, so this confirms no
+`git diff --stat 1f8be29..589ed08 -- adapters/` is empty, so this confirms no
 regression rather than new coverage.
 
 ### 3. HTML validator — not needed
@@ -197,7 +197,7 @@ No Python, adapter, spec, plan, or Target HTML changed.
   claim against the host, corrected two false README statements, rewrote the
   evaluation to separate the two trial batches, and committed `31becae`. The
   skill text and evaluation now describe the committed content, not either
-  session's draft. Every claim above was re-checked against `77331c6`.
+  session's draft. Every claim above was re-checked against `589ed08`.
 - **Scenario 2a is only a partial pass.** It saved in turn 1 and attributed the
   new facts to the current request rather than inventing earlier answers. That
   is defensible and arguably correct, but it did not exercise the missing-record
