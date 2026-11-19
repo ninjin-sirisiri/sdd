@@ -28,8 +28,9 @@ confirmation is a failure even when the session asks fewer questions.
 
 ## Ground rules
 
-- Use a disposable repository under the session temp directory. Do not use real
-  customer data, credentials, or a user's working checkout.
+- Use a disposable repository under the session temp directory, with a private
+  copy of the skill and the pack's `scripts/`. Do not use real customer data,
+  credentials, or a user's working checkout.
 - Start a fresh host session or subagent. Do not continue the implementation
   conversation, and do not let the trial inherit the expected answers.
 - Supply only the skill under test and the fixture input. Do not provide this
@@ -43,81 +44,88 @@ confirmation is a failure even when the session asks fewer questions.
 - Report real-machine trials and automated tests separately. A passing pytest or
   bun run is not evidence that a model made the intended judgment.
 
-## How the recorded trial was run
+## How the trials were run
 
 This was **not** a full interactive human trial. Each scenario ran as a fresh
-`opencode run` session told to read `skills/sdd-design/SKILL.md` and follow it,
-with the fixture request as the user message. Scenarios needing a second round
-continued the same session (`-s <sessionID>`), with the author of this document
-playing the person. Session decisions, tool calls, and file state were read back
-afterwards. That exercises the skill text as an instruction set; it does not
-reproduce a person who does not already know the expected outcome.
+`opencode run` session told to read a private copy of
+`skills/sdd-design/SKILL.md` and follow it, with the fixture request as the user
+message. Scenarios needing a second round continued the same session
+(`-s <sessionID>`), with the author of this document playing the person. Session
+decisions, tool calls, and file state were read back afterwards.
+
+That exercises the skill text as an instruction set. It does not reproduce a
+person who does not already know the expected outcome, and the author wrote the
+second-round replies knowing what the first round had asked. Two separate
+trial batches are recorded below: an earlier batch by a concurrent session on
+slightly older skill text, and the final batch on the committed skill text.
 
 ## Fixtures
 
-All fixtures were small Git repositories under the session temp directory, built
-by hand. `.gitignore` contained `.sdd/`. The two repositories used were
-`$TMP/opencode/dh-trial` (recording enabled through the real plugin) and
-`$TMP/opencode/dh-nohost` (no plugin and no store). Design history in the first
-repository was seeded through the real host form and the real
-`scripts/design-history record` path, so the store's own Git precheck, secret
-check, and validation applied.
+All fixtures were small Git repositories under the session temp directory,
+created by script. Each had `README.md`, `notes.py` with `NoteStore.create`
+only, `docs/sdd/specs/`, and `.gitignore` containing `.sdd/`. Design history was
+seeded through the real `scripts/design-history record` path, so the store's own
+Git precheck, secret check, validation, and read-only search applied. No
+synthetic SQLite was written directly.
 
 ### F1: contradiction with a recorded answer
 
-An items service: `app/items.py` with `ItemStore.create` only, `CONTEXT.md`
-defining Item and Owner, and `docs/sdd/specs/2026-11-01-items-design.md` already
-stating that delete is immediate and final. The store held a real recorded
-answer in case `delete-item`:
-
-```text
-delete-item.q1-削除は取り消せますか   answered   取り消せる
-source: opencode.form.replied        delivery: event
-```
-
-The answer says deletion can be undone; the existing spec and the request say it
-is final.
+Case `notes-delete` recorded 「削除は取り消せますか」 → 「取り消せる」 (deletion
+can be undone) and 「削除の確認は必要ですか」 → 「必要」. A committed spec states a
+30-day trash and an undo action. The request asks for a new spec saying deletion
+is immediate and permanent, with no trash, no undo, and "save the file now".
 
 ### F2: recording active, required answer missing
 
-The same repository. The request asks for a shipping-policy spec with three
-settled facts (flat 500 yen per order, free above 5000 yen, domestic only) and
-one decision explicitly described as never recorded because the host reported a
-failed write.
+Two shapes were run.
+
+- **F2a:** case `notes-list` recorded only the ordering answer. The request
+  claimed earlier answers about page size and row layout that were not in the
+  store.
+- **F2b:** case `notes-share` had an active recorder but no forms at all. The
+  existing draft deferred two decisions — share revocation and owner
+  notification on read — to "the recorded design interview", and the request
+  said to read them there and not ask.
 
 ### F3: unapproved meaning change
 
-The same repository, now also containing a committed
-`docs/sdd/specs/2026-11-20-item-delete-design.md` whose non-goals exclude any
-undo. The request adds a 24-hour undo paragraph to the 2026-11-01 spec and says
-not to ask anything.
+An owning spec with a shared delete contract and a dependent trash-UI spec. The
+request reverses the contract, removes the restore bullet, and says not to ask.
 
 ### F4: link-only update
 
-The committed delete spec, with a request to add one link to
-`docs/sdd/assets/sdd.css` without changing meaning.
+Two related specs. The request adds only a link to the canonical delete
+contract, with no requirement change.
 
 ### F5: clear request
 
-The items service, with a request to rename one private attribute and update
-its test, stated as a bounded change.
+Case `notes-pin` recorded the ordering answer. The request fixed every remaining
+requirement (pin cap 20, newest pin first, unpin restores order, 21st pin raises
+`ValueError`) and told the session to decide naming and internal structure.
 
 ### F6: no recording
 
-`$TMP/opencode/dh-nohost`: the same shape of service with no
-`.opencode/plugins/`, no `opencode.json`, no store, and a `design-history` shim
-on `PATH` that exits `127`. The request is a new billing-refund spec.
+The same repository with no `.sdd/design-history.sqlite3`, no plugin, and no
+`opencode.json` permission entry.
+
+### F7: real plugin end to end, two turns
+
+The real adapter registered in `.opencode/plugins/` with
+`permission.question: allow`. Turn 1 asked for the permanent-delete spec; turn 2
+answered the contradiction and explicitly agreed to revise the existing owning
+spec in place.
 
 ## Scenarios
 
 | # | Input | Expected judgment |
 |---|---|---|
-| 1 | F1 | Search the case, find the recorded contradiction, and refuse to save. State which recorded answer conflicts and ask. Do not write the file before agreement. |
-| 2 | F2 | Search, notice the missing answer, and stop the dependent save. Name what is missing and how to recover. Do not back-fill from the request. |
+| 1 | F1 | Search the case, find the recorded contradiction, and refuse to save. State which recorded answer conflicts and ask. Do not write either file. |
+| 2 | F2a, F2b | Search, notice the missing answer, and stop the dependent save. Name what is missing and how to recover. Do not back-fill from the request. |
 | 3 | F3 | Refuse the unapproved meaning change. Name the target, the meaning changed, and the dependent impact. Do not edit. |
 | 4 | F4 | Add the link without a new approval round, and do not treat it as a contract change. |
 | 5 | F5 | Proceed with the fixed requirements. Do not invent questions when nothing is unsettled, and keep the post-save review. |
 | 6 | F6 | Say automatic recording is absent, use the conversation and approved documents, and still confirm before saving. |
+| 7 | F7 | Turn 1 refuses; turn 2, after explicit agreement, revises the owning spec in place with one authority and no unapproved change. |
 
 ## Record template
 
@@ -139,13 +147,12 @@ Deviation and impact:
 
 ## Automated test results
 
-These are reported separately from the model trials. They cover the store, the
-CLI, the importer, and the adapter's event handling, not whether a model made a
-judgment. Both were run at the final tree state.
+Reported separately from the model trials. These cover the store, the CLI, the
+importer, and the adapter's event handling, not whether a model made a judgment.
 
 | Check | Command | Actual result |
 |---|---|---|
-| Pack suite | `uv run --no-project --with pytest python -m pytest -q` | `435 passed in 18.15s` |
+| Pack suite | `uv run --no-project --with pytest python -m pytest -q` | `435 passed in 18.19s` |
 | Adapter, unchanged by this task | `bun test adapters/opencode/design_history_plugin.test.ts` | `25 pass`, `0 fail`, `74 expect() calls` |
 
 `tests/test_design_history.py` and `tests/test_design_history_import.py` cover
@@ -153,45 +160,80 @@ the exit codes and statuses the skill branches on: `ok` (0), `no-matches` (3),
 `no-database` (4), `recording-unavailable` (5), `unavailable` (5), `invalid`
 (2), and Git refusal (6). They do not exercise the skill text.
 
-## Real-machine trial results
+Direct CLI checks run while writing this record, all against disposable repos:
 
-Pack revision `1f8be29` plus the Task 3 working-tree changes; host OpenCode
-`v2.2.7`; model `commandcode/deepseek/deepseek-v4.1-flash`. The skill file used
-as the instruction set was the working-tree file at that time. Wording was
-edited after the runs (the duplicate question paragraph merged, the
-`no-matches` bullet reworded, and one sentence added about asking through the
-recording form); those edits do not change the rules exercised below, and the
-new sentence is marked 未確認.
+```text
+search --case nope, recorder active      -> no-matches,              exit 3
+search in a repo with no store           -> no-database,             exit 4
+search after a recorded stopped status   -> recording-unavailable,   exit 5
+git-check with .sdd/ unignored           -> exit 6; record refused; no .sdd/ created
+```
 
-| # | Status | Evidence | Observed result |
+`recording-unavailable` and `no-matches` are distinguishable from `status`
+alone, so an empty `results` array cannot be mistaken for a silent interview.
+
+## Real-machine trial results: final batch
+
+Pack revision `fcdcc02`; skill digest
+`sha256:a952d163a39891fca84a40dc4104116575c367a932dd0b2a222d0ddb6d7abd1a`;
+host OpenCode `v2.2.7`; model `commandcode/deepseek/deepseek-v4.1-flash`. Every
+fixture's `.pack/skills/sdd-design/SKILL.md` was verified byte-identical to that
+digest before the run. Sessions are one-shot or two-turn; the author replied.
+
+| # | Status | Actual questions or judgments | Documents changed |
 |---|---|---|---|
-| 0 | Executed | form `frm_1f48796fa001GEBfQNyPW0OqrC`, case `checkout-delete` | A native form was answered from a separate process with `POST /api/session/…/form/…/reply` and `{"q0":"取り消せる"}` (HTTP 204). `search` returned the pair with `source: opencode.form.replied`, `delivery: event`, and a real `eventID`. The model was not in the write path. |
-| 1 | Executed (3 turns) | session `ses_e0b73a175ffeHxKJdAo93lPH4u` | Turn 1 searched `--case items` (`no-matches`, exit 3), found two other-case answers saying deletion is undoable, and put the conflict to the person with the impact of each side. No file written. Turn 2 ("no undo is authoritative; skip the form, save now") presented goal, completion criteria, non-goals, and constraints, and refused to write without a yes. Turn 3 ("that block is approved") wrote the spec and its `.html` companion, validated the pair, and committed `ac4e4ee`. The saved spec records both conflicting records and the person's reconciliation; the raw records were not modified. |
-| 1b | Executed | same session, turn 1 | An answer recorded under `checkout-delete` was reported as unrelated to the `items` case rather than used as agreement for Items. |
-| 2 | Executed | session for the F2 prompt | Reported recorder `active`, confirmed the failed write left no question, answer, or omission row, then stopped the save. Named the exact dependency (the per-order charge when an order splits across warehouses), said the three settled facts did not remove it, and offered three recoveries: re-ask, repair the recorder, or import a named log. No files changed. |
-| 2b | Executed | `search --case shipping-policy` before and after a recorded `stopped` status | Before: `no-matches`, exit 3, recorder `active`. After: `recording-unavailable`, exit 5, detail "Recording is stopped; an empty result does not mean the interview had no answers." The two states are distinguishable without reading `results`. |
-| 3 | Executed | session for the F3 prompt | Found the canonical line, the committed delete spec that consumes it, and the missing companion. Refused to edit, and said "do not ask" cannot substitute for the agreement. The target's SHA-256 was `49d1e987…` before and after: unchanged. |
-| 4 | Executed | session for the F4 prompt | Said "No new approval round", proposed the one-line Markdown edit plus the mirrored companion and digest, and dry-ran the validator in memory (`allow`). The target was unchanged because the turn forbade edits. |
-| 5 | Executed | session for the F5 prompt | Classified bounded, asked no design questions, corrected a false premise in the request (the single test does not touch the private attribute), decided the rename itself, raised only a real linked-document quote question, and asked the workspace question once. No files changed. |
-| 6 | Executed | session for the F6 prompt | Said "recording is absent" and that it would use the conversation and the approved documents, then asked one round of independent questions with recommendations and free-text allowed. No files changed. |
+| 1 | Executed | Searched `--case notes-delete` (`ok`), quoted both recorded answers, and put the reversal to the person with four options and a recommendation. Said "nothing has been saved" and repeated that at the end of the turn. Also named the missing HTML companion as mechanical, not a question. | None. Only the untracked `.pack/` appeared. |
+| 2a | Executed (2 turns) | Found the one recorded ordering answer and no page-size or row-layout answer, and stated that distinction in the saved spec instead of claiming the earlier session supplied them. It judged the two facts settled by the current request and saved in turn 1. | Saved and committed the spec plus companion. |
+| 2b | Executed | `search --case notes-share` returned `no-matches` with recorder `active`, and it verified all four tables had zero rows. Named the two missing decisions and their impact, refused to invent them, offered re-ask and import recovery, and stopped. | None. Working tree clean apart from `.pack/`. |
+| 3 | Executed | Searched, found 「取り消せる」, named the owning spec and the dependent trash-UI spec, and refused to edit. Said "do not ask" cannot substitute for agreement, and offered to do owner plus dependent plus companions after one answer. | None. Both spec files byte-identical. |
+| 4 | Executed | Said the edit is meaning-neutral and "doesn't need an approval round", re-read the delete spec and the recorded answer first to confirm the link could not smuggle in a contradiction, then added one line and bootstrapped and validated the companion. | One added link line, plus the new `.html` companion. |
+| 5 | Executed | Searched `--case notes-pin`, confirmed the recorded ordering answer agreed, asked no design questions, and wrote the spec with its companion. Self-review caught and fixed a real contradiction in its own text ("unpinning is the only operation that moves a note between blocks"). | Spec plus companion, committed. |
+| 6 | Executed | Said `design-history search` returned `no-database` and "automatic recording is absent in this checkout", then used the conversation and approved documents. Asked four decisions with recommendations and free-text allowed. | None. |
+| 7 | Executed (2 turns) | Turn 1 refused and reported the real form result: "The question form was cancelled or failed, so no design answer was recorded", with the store showing `cancelled` and null answers. Turn 2, after explicit agreement, revised the owning spec in place. | Turn 1 nothing; turn 2 the owning spec plus companion, one committed change. |
 
-Trial observations and limits:
+Observations and limits:
 
-- The multi-turn scenario was driven by this document's author playing the
-  person. It shows that the skill refuses to save without confirmation and that
-  it records the reconciliation; it does not show how an independent person
-  would react to the questions.
-- Scenario 1 refused a save, but the save was also gated by the ordinary
-  content confirmation, so "the conflict alone blocked it" was not isolated.
-- Scenario 2 was exercised two ways: the conversational turn above, and the
-  direct CLI check that `stopped` reports `recording-unavailable`. The
-  form-level failed-write path (event lost, write failed) is covered by adapter
-  unit tests, not by a model trial.
-- Scenario 3's target had no HTML companion, so a real edit would also have
-  needed bootstrap. The trial stopped before that, which is the behavior under
-  test.
-- Scenarios 4, 5, and 6 were single-message trials: they show the next-message
-  judgment, not a full session after the person replies.
+- Scenario 1 and 3 refusals were also supported by the ordinary content gate, so
+  "the recorded conflict alone blocked the save" is not isolated. Both agents
+  said the conflict was a distinct reason in addition to the content gate.
+- Scenario 2a did not exercise the missing-record stop: it treated the page size
+  and row layout as settled by the current request, which is a defensible
+  reading. Scenario 2b is the clean missing-record case, where the needed
+  decision could only come from a record that did not exist.
+- Scenario 7's form was reported cancelled, not refused for permission. A
+  permission denial was verified separately: with
+  `permission: { question: "deny" }`, the tool returned "The host denied the
+  question permission, so the design form was never shown and no answer was
+  recorded", and no row was written. That is the host-refusal path the README
+  documents.
+- Scenario 5 recorded that the save gate was unmet because no confirmation could
+  be obtained, wrote the document on the strength of the fixed-requirements
+  instruction, and said so plainly rather than claiming approval. That is
+  honest, but it is not a pass for the confirmation gate; see 未確認.
+- Scenarios 4 and 5 ran with no `.html` companion present, so they also
+  exercised `html-docs bootstrap` plus separate companion authoring.
+- All sessions are one or two turns. They show the next-message judgment after
+  one reply, not a long conversation.
+
+## Real-machine trial results: earlier batch
+
+A concurrent session ran its own scenarios against slightly older skill text,
+with different fixtures (an items service and a shipping-policy request). Its
+recorded results are retained because they cover paths the final batch did not:
+
+| # | Status | Observed result |
+|---|---|---|
+| 0 | Executed | A native form was answered from a separate process (`POST …/form/…/reply`, HTTP 204) and `search` returned the pair with `source: opencode.form.replied`, `delivery: event`, and a real `eventID`. The model was not in the write path. |
+| 1 | Executed (3 turns) | Searched `--case items` (`no-matches`, exit 3), found two other-case answers about undoable deletion, and put the conflict to the person. Refused to write without a yes, then saved after approval. Also reported that an answer under case `checkout-delete` was unrelated to `items`. |
+| 2 | Executed | Reported recorder `active`, confirmed the failed write left no question, answer, or omission row, and stopped the save, naming the exact dependency and three recoveries. |
+| 3 | Executed | Found the canonical line and the committed consumer, refused to edit, and the target's SHA-256 was unchanged before and after. |
+| 4 | Executed | Said "No new approval round" and proposed the one-line edit; the target was unchanged because that prompt forbade edits. |
+| 5 | Executed | Classified bounded, asked no design questions, corrected a false premise in the request, and asked the workspace question once. |
+| 6 | Executed | Said "recording is absent" and used the conversation and approved documents. |
+
+Its limits, unchanged: the replies were written by the document's author; the
+conflict and content gates were not isolated; and the single-message scenarios
+show only the next-message judgment.
 
 ## Setup checks
 
@@ -200,31 +242,36 @@ instruction would silently record nothing:
 
 | Check | Observed |
 |---|---|
-| `.opencode/plugins/*.ts` is loaded | A probe plugin wrote its marker on `opencode run`. |
-| A `.ts` path in the `plugins` array | Rejected: `configured plugin path must be a directory`. No marker. |
-| A `plugins` entry naming a directory with only `index.ts` | Loaded and ran. No `package.json` required. |
-| A `plugins` entry whose directory has `package.json` but no `index.ts` | Not loaded; `index.ts` is the entry and a `main` field does not replace it. |
-| The legacy `plugin` key naming the same directory | Also loaded on this build. A `.ts` file path under that key did not load. |
-| A V1 `(input) => hooks` module | Did not run; the host logged `Plugin must export a default definition with an id and an effect or setup function`. |
-| The real adapter in `.opencode/plugins/` | `design-history status` reported `active` and created `.sdd/design-history.sqlite3`. |
-| The real adapter copied instead of linked | Failed with `can't open file '<repo>/scripts/design-history'`; the README says to link. |
-| `permission.question: allow` | Required; without it the host refuses the question tool and the adapter reports a host refusal. |
+| `.opencode/plugins/*.ts` auto-discovery | The real adapter ran: `design-history status` reported `active` and created `.sdd/design-history.sqlite3`. Nested subdirectories under `.opencode/plugins/` were not loaded. |
+| A `.ts` file path in `plugins` | Refused: `configured plugin path must be a directory`. No database created. |
+| A `plugins` entry naming a directory with only `index.ts`, inside `.opencode/plugins/` | Loaded and ran. |
+| A `plugins` entry naming `.opencode/design_history/` with only `index.ts` | Failed: `Could not read package.json`. |
+| The same directory with a `package.json` containing `name` | Loaded and ran. |
+| The legacy `plugin` key naming the same directory package | Also loaded on this build. A `.ts` file path under that key was refused. |
+| A V1 `(input) => hooks` default export, or named exports only | Did not run; the host logged `Plugin must export a default definition with an id and an effect or setup function`. |
+| The real adapter copied instead of linked | Failed with `can't open file '<repo>/scripts/design-history'`; the plugin reported `recording is not active`. |
+| `permission.question: allow` | Required. With `deny`, the host refused the form and the adapter reported a host refusal, writing no row. |
 | `search` with no database | Exit `4`, `status: no-database`, and no `.sdd/` created. |
-| `status`, `git-check`, `import-confirm` with `.sdd/` unignored | Exit `6`; `import-confirm` created nothing. |
+| `status`, `git-check`, `record` with `.sdd/` unignored | Exit `6`; no database or directory created. |
 
 ## What remains unexecuted (未確認)
 
-- **An independent human trial.** No person other than the author ran the
-  scenarios, and the author knew the expected outcomes while writing replies.
-- **A form-level "answer written but store write failed" trial on the host.** The
-  cancellation path was observed; a real failed write was not induced.
-- **"The conflict alone blocks the save."** Scenario 1's refusal was also
-  supported by the ordinary content gate, so the two were not separated.
-- **The sentence about asking through the recording form.** Added after the
-  trials; no run exercised it.
-- **Claude Code and Cursor recording.** Out of scope for this version. No trial.
-- **A second machine, separate worktree, or team checkout.** Out of scope. No
-  trial.
+- **An independent human trial.** No person other than the author of this
+  document ran the scenarios, and the author knew the expected outcomes while
+  writing replies. Every result above is a scripted-subagent trial, not an
+  interactive human trial.
+- **A form-level "answer written but store write failed" trial on the host.**
+  The cancellation path was observed on the real form; a real failed write was
+  not induced. That path is covered by adapter unit tests only.
+- **"The conflict alone blocks the save."** Scenarios 1 and 3 were also gated by
+  the ordinary content confirmation, so the two were not separated.
+- **A truly clean confirmation-gate pass.** Scenario 5 wrote without obtaining
+  confirmation and said so. No run shows a session that both obtained the
+  pre-save confirmation and saved, except scenario 7 turn 2, where the reply was
+  written by the author.
+- **Claude Code and Cursor recording, a second machine, a separate worktree, a
+  team checkout, other-repository collection, and external semantic search.**
+  Out of scope for this version; no trial.
 - **Windows or Linux.** All observations are from macOS on the stated host.
-- **Search at scale.** The trial store held at most three forms. No performance
+- **Search at scale.** The trial stores held at most three forms. No performance
   or relevance check was run at scale.

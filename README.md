@@ -155,9 +155,11 @@ WARN configured plugin path must be a directory
   target=.opencode/plugins/design_history_plugin.ts
 ```
 
-The directory is loaded through its `index.ts`. A `package.json` is not
-required: a directory containing only `index.ts` loads, and a directory whose
-`package.json` points at a different entry does not override `index.ts`.
+The directory is loaded through its `index.ts`. A `main` field does not replace
+`index.ts`. Whether a `package.json` is needed depends on where the directory
+is: inside `.opencode/plugins/` the host already treats it as local and a bare
+`index.ts` directory loads; elsewhere, including `.opencode/design_history/`,
+loading fails with `Could not read package.json` unless the directory has one.
 
 ```json
 {
@@ -166,14 +168,20 @@ required: a directory containing only `index.ts` loads, and a directory whose
 }
 ```
 
+```bash
+# .opencode/design_history/package.json
+{ "name": "sdd-design-history", "version": "1.0.0", "type": "module", "main": "index.ts" }
+```
+
 ```ts
 // .opencode/design_history/index.ts
 export { default } from "../../adapters/opencode/design_history_plugin.ts"
 ```
 
-Auto-discovery needs no entry at all and is the simplest setup. The older
+Auto-discovery under `.opencode/plugins/` needs no entry at all and is the
+simplest setup, so prefer it unless an explicit entry is required. The older
 `plugin` key also loads such a directory on this build, but `plugins` is the
-documented V2 key; use one or the other, not both.
+documented key; use one or the other, not both.
 
 Verify with `./scripts/design-history status`: `recorder.status` should be
 `active` after the host loads the plugin, and `git.ignored` must be `true`.
@@ -208,12 +216,12 @@ Branch on `status`, never on an empty `results`:
 | 5 | `unavailable` | The database exists but cannot be read. |
 | 2 | `invalid` | The request or a filter is wrong. |
 
-`design-history status`, `record`, and `import-confirm` also exit `6` when the
-Git precheck refuses the database path. Exit `5` from `search` is not the same
-as exit `3`: only `3` means the recorder is healthy and the interview had no
-matching answer. Exit `6` from `search` is not expected, because search never
-opens the store for writing; when a write is refused, `status` and `record`
-report `status: refused` with a reason and the ignore guidance.
+`design-history status`, `record`, and `import-confirm` exit `6` when the Git
+precheck refuses the database path; the response carries `status: refused`, a
+`reason`, and the ignore guidance. `import-preview` and `search` never write, so
+they report their own status instead of refusing. Exit `5` from `search` is not
+the same as exit `3`: only `3` means the recorder is healthy and the interview
+had no matching answer.
 
 ### Import past logs
 
