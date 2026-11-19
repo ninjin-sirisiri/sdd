@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; style-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none';">
+<meta name="sdd-source-digest" content="sha256:84b1dc0e1a541d07ec8dfe82e4d4f7496c0e752132748fda5aa77b012b589c47">
+<title>Design Interview History Implementation Plan</title>
+<link rel="stylesheet" href="../assets/sdd.css">
+</head>
+<body data-document-kind="plan">
+<a class="skip-link" href="#content">本文へ移動</a>
+<header class="document-header" data-document-kind="plan">
+<p class="document-kind">実装計画</p>
+</header>
+<div class="document-layout">
+<aside class="document-outline" aria-labelledby="outline-label">
+<details open>
+<summary id="outline-label">この計画の構成</summary>
+<nav aria-label="計画内の目次">
+<ol>
+<li><a href="#global-constraints">全体の制約</a></li>
+<li><a href="#file-structure">ファイル構成</a></li>
+<li><a href="#task-1-capture-and-search-live-interview-answers">Task 1: 自動記録と検索</a></li>
+<li><a href="#task-2-import-explicitly-selected-past-logs">Task 2: 過去ログ取り込み</a></li>
+<li><a href="#task-3-confirm-design-intent-before-saving-documents">Task 3: 保存前の確認</a></li>
+</ol>
+</nav>
+</details>
+</aside>
+<main id="content" tabindex="-1">
+<h1 id="design-interview-history-implementation-plan" lang="en">Design Interview History Implementation Plan</h1>
+<p class="metadata"><strong>Goal:</strong> 重要な設計質問と実際の回答を別セッションでも参照できるようにし、合意と異なる仕様書の保存や既存文書の無断変更を防ぐ。</p>
+<p class="metadata"><strong>Architecture:</strong> OpenCode V2 のプラグインが設計フォームのイベントを受け取り、対象 checkout の SQLite に質問と回答を記録する。ローカル CLI が検索と明示的な過去ログ取り込みを提供し、<code>sdd-design</code> は文書保存前に履歴と仕様案を照合する。</p>
+<p class="metadata"><strong>Tech Stack:</strong> OpenCode V2 サーバープラグイン、TypeScript、Python 3.11+、標準ライブラリの SQLite、Git、pytest。</p>
+<p class="metadata"><strong>Spec:</strong> <code>docs/sdd/specs/2026-11-19-design-interview-history-design.md</code></p>
+<section>
+<h2 id="global-constraints" lang="en">Global Constraints</h2>
+<ul>
+<li>初版の自動記録は OpenCode V2 のみ。</li>
+<li>Claude Code・Cursor の記録、別 worktree・別マシン・チーム共有、他のリポジトリの会話収集、意味検索の外部サービスは対象外。</li>
+<li>保存先が Git の除外対象で未追跡であることを作成前に確認する。</li>
+<li>モデルは原記録を書き換えず、回答の解釈を本人の発言や承認として扱わない。</li>
+<li>添付ファイル、資格情報、ツール出力、セッション全文は保存せず、履歴を外部サービスに送信しない。</li>
+<li>履歴は合意を照合する根拠であって、承認済み文書に代わる仕様の正本ではない。</li>
+<li>保存後の文書レビューや実装承認は、この確認で代用しない。</li>
+<li>既存の spec／roadmap は、対象・変更する意味・依存する作業への影響について明示的に合意するまで書き換えない。</li>
+</ul>
+</section>
+<section>
+<h2 id="file-structure" lang="en">File Structure</h2>
+<ul>
+<li><code>adapters/opencode/</code>：V2 の設計フォームとイベント記録。既存の HTML 用プラグインは変更しない。</li>
+<li><code>scripts/design-history</code>、<code>scripts/sddlib/</code>、<code>tests/</code>：履歴ストア、読み取り専用検索、ユーザー指定ログの取り込みと回帰テスト。</li>
+<li><code>skills/sdd-design/SKILL.md</code>、<code>README.md</code>、<code>docs/evaluations/design-interview-history.md</code>：面談・保存前確認ルール、有効化と復旧手順、試用手順と証拠の要約。</li>
+</ul>
+</section>
+<article data-task-number="1" aria-labelledby="task-1-capture-and-search-live-interview-answers">
+<h2 id="task-1-capture-and-search-live-interview-answers" lang="en">Task 1: Capture and search live interview answers</h2>
+<p><strong>Spec and dependencies:</strong> <code>docs/sdd/specs/2026-11-19-design-interview-history-design.md</code> の「アーキテクチャと責務」「質問から文書保存まで」の手順 2、「記録できない場合」「検証と完了条件」。先行 Task なし。</p>
+<p><strong>Deliverable:</strong> 記録から検索までを一度通せる OpenCode V2 アダプター、SQLite ストア、読み取り専用 CLI。最初に使い捨てリポジトリと実際の OpenCode V2 で、プラグインが提示したフォームの作成・回答・取消を公開イベントで識別できるか確認する。公開 API の定義やモックで実機結果を代用しない。実機が使えない、または回答を相関できない場合は、結果と阻害要因を報告し、この Task を完了扱いにしない。</p>
+<ul>
+<li>プラグインが設計案件と checkout を紐づけたフォームだけを対象にし、ホストのセッション ID・フォーム ID・項目 ID で対応付ける。技術仕様は OpenCode V2 の現行サーバープラグインと Form API に照らす。モデルに回答ペイロードを渡して記録させない。</li>
+<li><code>.sdd/design-history.sqlite3</code> への書き込み前に、checkout 境界と DB・付随ファイルの Git 除外／未追跡を検査する。重複配信や並行セッションでも同じ組を重複・混同させない。取消、未回答、回答済みを区別し、明示された保留や訂正は原回答を保持する。欠落・停止・書き込み失敗は空の検索結果と区別できるようにする。秘密値を検出した組はログにも出さず、欠落だけを通知する。</li>
+<li><code>scripts/design-history</code> が案件・質問 ID・日本語の部分一致で絞り込んだ組を JSON で返す。質問本文・提示順の選択肢・実際の回答・出所・状態を含み、検索が DB を作成・変更しないことを確認する。</li>
+</ul>
+<p><strong>Verify:</strong> 単体・アダプターテストで複数項目、同じ選択肢名、取消と未回答、再配信、別リポジトリの除外、Git 条件、検索と保存失敗を検証する。使い捨てリポジトリの実機試用で、選択と自由回答を保存し、別セッションで案件・キーワード・質問 ID の各検索を確認する。使用した V2 バージョン、実行手順、実出力、検証範囲を報告する。実データや会話全文は証拠に含めない。</p>
+</article>
+<article data-task-number="2" aria-labelledby="task-2-import-explicitly-selected-past-logs">
+<h2 id="task-2-import-explicitly-selected-past-logs" lang="en">Task 2: Import explicitly selected past logs</h2>
+<p><strong>Spec and dependencies:</strong> <code>docs/sdd/specs/2026-11-19-design-interview-history-design.md</code> の「質問から文書保存まで」の手順 3 と「記録できない場合」。Task 1 の保存形式、質問 ID、出所、Git 除外と秘密情報の扱いを再利用する。</p>
+<p><strong>Deliverable:</strong> <code>scripts/design-history</code> に、ユーザーがローカルファイルと設計案件を明示して使う取り込み操作を追加する。プレビューでは書き込まず、取り込む組と除外理由を確認できるようにし、明示的な確定操作でだけ保存する。対応が確かめられる組を出所付きで保存し、不明な対応は推測しない。対応するログ形式と入力例を用意し、ログを自動探索・変更しない。</p>
+<p><strong>Verify:</strong> 一意の組、対応が曖昧な組、秘密情報を含む組、未対応形式を持つ合成ログで、プレビュー、確定、再実行時の重複防止、通常の検索での取得を検証する。入力ファイルを変更していないことと、抜粋以外の記録が残っていないことも確認し、コマンドと実出力を報告する。</p>
+</article>
+<article data-task-number="3" aria-labelledby="task-3-confirm-design-intent-before-saving-documents">
+<h2 id="task-3-confirm-design-intent-before-saving-documents" lang="en">Task 3: Confirm design intent before saving documents</h2>
+<p><strong>Spec and dependencies:</strong> <code>docs/sdd/specs/2026-11-19-design-interview-history-design.md</code> の「質問から文書保存まで」の手順 1・4・5、「記録できない場合」「検証と完了条件」。Task 1 の検索・失敗状態と Task 2 の取り込み手順を利用する。既存の <a href="../specs/2026-11-07-skill-judgment-and-handoff-design.md">判断基準</a> にある質問の絞り込みは維持する。</p>
+<p><strong>Deliverable:</strong> <code>skills/sdd-design/SKILL.md</code> に、選択肢・推奨・理由と自由回答を使う判断基準、関連履歴の検索、保存前の照合と明示確認、既存文書を意味変更する前の承認を組み込む。新規 roadmap は分割と順序も先に確認し、保存後の承認を残す。記録有効時に必要な履歴が欠ければ依存する文書保存を止める。非対応・未有効ならその旨を示し、現在の会話と承認済み文書で確認する。リンクだけの更新に再承認を増やさない。<code>README.md</code> に設定、操作、記録範囲、復旧手順を説明する。</p>
+<p><strong>Verify:</strong> 使い捨てリポジトリの複数ターンの試用で、回答と矛盾する案、必要な記録の欠落、既存文書への未承認の変更が保存されないことを確認する。明確な要求、リンクだけの更新、非対応ホストでも適切に進むことを確認する。<code>docs/evaluations/design-interview-history.md</code> に入力、実際の質問と判断、変更された文書の有無、実機試用と自動テストの結果を分けて記録する。最終状態で <code>uv run --no-project --with pytest python -m pytest -q</code> を実行し、未実施の項目は未確認として報告する。</p>
+</article>
+</main>
+</div>
+</body>
+</html>
