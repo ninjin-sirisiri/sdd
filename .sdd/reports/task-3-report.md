@@ -86,7 +86,7 @@ Executor: me. Exact command and actual output:
 $ uv run --no-project --with pytest python -m pytest -q
 ........................................................................ [ 99%]
 ...                                                                      [100%]
-435 passed in 18.30s
+435 passed in 18.30s (also 18.19s, 18.06s, 17.45s, 17.41s at the same tree)
 ```
 
 Scope: whole suite. Target change: `c2b3d21`..`77331c6` (docs/skill only; no
