@@ -844,6 +844,7 @@ def confirm_import(
 
     stored = set(result["recorded"])
     known = set(result["alreadyRecorded"])
+    planned = [pair.report() for pair in plan.importable]
     recorded = [pair.report() for pair in plan.importable if pair.question_id in stored]
     already = [pair.report() for pair in plan.already] + [
         pair.report() for pair in plan.importable if pair.question_id in known
@@ -873,6 +874,7 @@ def confirm_import(
         document=document,
         pairs_in_log=plan.pairs_in_log,
         form=form,
+        importable=planned,
         already=already,
         excluded=excluded,
         recorded=recorded,

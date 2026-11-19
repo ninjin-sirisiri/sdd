@@ -268,6 +268,8 @@ def test_preview_and_confirm_agree_on_the_same_pairs(tmp_path: Path) -> None:
         pair["questionID"] for pair in preview["importable"]
     ]
     assert confirmed["counts"]["recorded"] == preview["counts"]["importable"]
+    assert confirmed["counts"]["importable"] == preview["counts"]["importable"]
+    assert confirmed["counts"]["excluded"] == preview["counts"]["excluded"]
 
 
 # --- Confirm -------------------------------------------------------------
