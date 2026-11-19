@@ -152,7 +152,7 @@ importer, and the adapter's event handling, not whether a model made a judgment.
 
 | Check | Command | Actual result |
 |---|---|---|
-| Pack suite | `uv run --no-project --with pytest python -m pytest -q` | `435 passed in 18.19s` |
+| Pack suite | `uv run --no-project --with pytest python -m pytest -q` | `435 passed in 18.19s` and `435 passed in 18.30s` on two runs at the final tree |
 | Adapter, unchanged by this task | `bun test adapters/opencode/design_history_plugin.test.ts` | `25 pass`, `0 fail`, `74 expect() calls` |
 
 `tests/test_design_history.py` and `tests/test_design_history_import.py` cover
