@@ -396,6 +396,19 @@ describe("host payload construction", () => {
 })
 
 describe("design question tool", () => {
+  test("declares an output schema so the host can encode its result", () => {
+    // Verified on 2.2.7 with a real model call: a bare-string return crashes
+    // the dispatcher (`"output" in a`), and `{ output }` without a declared
+    // schema fails with "Tool result declared output without an output schema".
+    const tool = createDesignQuestionTool({
+      checkout: CHECKOUT,
+      recorder: recorderSpy().recorder,
+      registrations: createRegistrationTable(),
+      findQuestionTool: async () => undefined,
+    })
+    expect(tool.output).toEqual({ type: "string" })
+  })
+
   test("presents through the host question tool and never returns the answers", async () => {
     const table = createRegistrationTable()
     const { payloads, recorder } = recorderSpy()
@@ -475,9 +488,10 @@ describe("design question tool", () => {
         { question: "対象外は?", header: "対象外", options: [] },
       ],
     })
-    expect(output).toContain("recorded in the design history")
-    expect(output).not.toContain("取り消せる")
-    expect(output).not.toContain("監査ログのみ")
+    expect(output.output).toContain("recorded in the design history")
+    expect(output.output).not.toContain("取り消せる")
+    expect(output.output).not.toContain("監査ログのみ")
+    expect(output).toHaveProperty("output")
     expect(table.pendingCount()).toBe(0)
     expect(table.confirmedCount()).toBe(1)
     expect(payloads.map((payload) => payload.action)).toEqual(["register", "reply"])
@@ -538,9 +552,9 @@ describe("design question tool", () => {
       { sessionID: "ses_fail", messageID: "msg" },
     )
     expect(replyCalls).toBe(1)
-    expect(output).toContain("answer write failed")
-    expect(output).toContain("disk full")
-    expect(output).not.toContain("recorded in the design history")
+    expect(output.output).toContain("answer write failed")
+    expect(output.output).toContain("disk full")
+    expect(output.output).not.toContain("recorded in the design history")
   })
 
   test("reports event loss instead of inventing a recording", async () => {
@@ -564,7 +578,7 @@ describe("design question tool", () => {
       { case: "case-loss", questions: [{ text: "Q", options: [{ label: "A" }] }] },
       { sessionID: "ses_loss", messageID: "msg" },
     )
-    expect(output).toContain("was not recorded")
+    expect(output.output).toContain("was not recorded")
     expect(payloads).toEqual([])
     expect(table.pendingCount()).toBe(0)
   })
@@ -583,7 +597,7 @@ describe("design question tool", () => {
       { case: "case-none", questions: [{ text: "Q", options: [{ label: "A" }] }] },
       { sessionID: "ses_none", messageID: "msg" },
     )
-    expect(output).toContain("no design answer was recorded")
+    expect(output.output).toContain("no design answer was recorded")
     expect(payloads).toEqual([])
     expect(table.pendingCount()).toBe(0)
   })
@@ -607,7 +621,7 @@ describe("design question tool", () => {
       { case: "case-cancel", questions: [{ text: "Q", options: [{ label: "A" }] }] },
       { sessionID: "ses_cancel", messageID: "msg" },
     )
-    expect(output).toContain("cancelled")
+    expect(output.output).toContain("cancelled")
     expect(payloads).toEqual([])
     expect(table.pendingCount()).toBe(0)
   })
@@ -633,9 +647,9 @@ describe("design question tool", () => {
       { case: "case-denied", questions: [{ text: "Q", options: [{ label: "A" }] }] },
       { sessionID: "ses_denied", messageID: "msg" },
     )
-    expect(output).toContain("denied the question permission")
-    expect(output).toContain("no answer was recorded")
-    expect(output).not.toContain("cancelled")
+    expect(output.output).toContain("denied the question permission")
+    expect(output.output).toContain("no answer was recorded")
+    expect(output.output).not.toContain("cancelled")
     expect(payloads).toEqual([])
     expect(table.pendingCount()).toBe(0)
   })

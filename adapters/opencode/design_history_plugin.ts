@@ -561,6 +561,24 @@ function delay(ms: number): Promise<void> {
 }
 
 /**
+ * Declared output schema for the design tool.
+ *
+ * OpenCode's dispatcher crashes on a bare-string tool return (`"output" in a`)
+ * and rejects `{ output }` without a declared schema ("Tool result declared
+ * output without an output schema"). Both were observed on 2.2.7 with a real
+ * model call. Declaring a plain JSON Schema as the output keeps the
+ * acknowledgement a `{ output: string }` object, like the built-in question
+ * tool. A `~standard`-shaped schema is deliberately avoided: the host expects
+ * its `jsonSchema` member to be a map of functions, and a wrong shape there is
+ * rejected at registration with "Skipping invalid tool registration".
+ */
+const OUTPUT_SCHEMA = { type: "string" }
+
+function acknowledgement(message: string): { output: string } {
+  return { output: message }
+}
+
+/**
  * The plugin-published design tool. It presents the questions through the
  * host's native question/form tool and returns only an acknowledgement. The
  * answer values never pass back through the model, so the model cannot become a
@@ -582,7 +600,8 @@ export function createDesignQuestionTool(options: DesignQuestionToolOptions): Ho
       "the result summarizes only whether the recording succeeded and never repeats " +
       "the answer values.",
     input: undefined,
-    async execute(rawInput: unknown, context: HostToolContext): Promise<string> {
+    output: OUTPUT_SCHEMA,
+    async execute(rawInput: unknown, context: HostToolContext): Promise<{ output: string }> {
       const input: DesignQuestionToolInput = isRecord(rawInput) ? rawInput : {}
       const caseID = requireString(input.case, "case")
       const questions = normalizeToolQuestions(input.questions)
@@ -606,7 +625,9 @@ export function createDesignQuestionTool(options: DesignQuestionToolOptions): Ho
       if (!hostTool) {
         options.registrations.takePending(token)
         options.log?.("design history: the host question tool is unavailable; nothing was recorded")
-        return "The host does not provide a native question form, so no design answer was recorded."
+        return acknowledgement(
+          "The host does not provide a native question form, so no design answer was recorded.",
+        )
       }
 
       let result: unknown
@@ -625,13 +646,15 @@ export function createDesignQuestionTool(options: DesignQuestionToolOptions): Ho
         const message = error instanceof Error ? error.message : String(error)
         options.log?.(`design history: the form was not answered: ${message}`)
         if (/permission denied/i.test(message)) {
-          return (
+          return acknowledgement(
             "The host denied the question permission, so the design form was never shown " +
             "and no answer was recorded. The agent's permission rules must allow the " +
-            "`question` action for design history to work."
+            "`question` action for design history to work.",
           )
         }
-        return "The question form was cancelled or failed, so no design answer was recorded."
+        return acknowledgement(
+          "The question form was cancelled or failed, so no design answer was recorded.",
+        )
       }
 
       // Wait for the plugin's own event handlers to finish the store writes.
@@ -646,35 +669,35 @@ export function createDesignQuestionTool(options: DesignQuestionToolOptions): Ho
       if (!state?.created) {
         options.registrations.takePending(token)
         options.log?.("design history: the host form creation event was lost; the answer was not recorded")
-        return (
+        return acknowledgement(
           "The form was answered, but the host did not publish its creation event, so the " +
           "answer could not be correlated and was not recorded. Re-ask in a new session and " +
-          "report the missing recording before relying on this answer."
+          "report the missing recording before relying on this answer.",
         )
       }
       if (!state.created.ok) {
-        return (
+        return acknowledgement(
           "The form was answered, but the design history write failed, so the answer was not " +
           `recorded (${state.created.detail ?? "unknown store error"}). Run the design-history ` +
-          "status command, fix the reported cause, and re-ask before relying on this answer."
+          "status command, fix the reported cause, and re-ask before relying on this answer.",
         )
       }
       if (!state.settled) {
-        return (
+        return acknowledgement(
           "The form was answered and the question was registered, but the answer write did not " +
           "complete, so the answer may not be recorded. Check the design-history status command " +
-          "before relying on this answer."
+          "before relying on this answer.",
         )
       }
       if (!state.settled.ok) {
-        return (
+        return acknowledgement(
           "The form was answered, but the answer write failed, so the answer was not recorded " +
           `(${state.settled.detail ?? "unknown store error"}). Run the design-history status ` +
-          "command, fix the reported cause, and re-ask before relying on this answer."
+          "command, fix the reported cause, and re-ask before relying on this answer.",
         )
       }
 
-      return summarizeHostResult(result)
+      return acknowledgement(summarizeHostResult(result))
     },
   }
 }
