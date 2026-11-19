@@ -1,0 +1,44 @@
+{
+  "format": "design-history-import",
+  "version": 1,
+  "title": "Mixed synthetic log: importable, ambiguous, secret, duplicates",
+  "questions": [
+    {
+      "question": "削除は取り消せますか",
+      "id": "checkout-cancel.q1",
+      "header": "削除",
+      "options": ["取り消せる", "取り消せない"],
+      "answer": "取り消せる"
+    },
+    {
+      "question": "対象外はありますか",
+      "id": "checkout-cancel.q2",
+      "options": [],
+      "answer": "監査ログだけ残す"
+    },
+    {
+      "question": "削除の確認は必要ですか",
+      "header": "確認",
+      "options": ["必要", "不要"],
+      "answer": "たぶん必要"
+    },
+    {
+      "question": "監査ログの保存先は API key: sk-proj-abcdefghijklmnopqrstuvwxyz012345 ですか",
+      "id": "checkout-cancel.q4",
+      "options": ["はい", "いいえ"],
+      "answer": "はい"
+    },
+    {
+      "question": "削除は取り消せますか",
+      "id": "checkout-cancel.q1",
+      "options": ["取り消せる", "取り消せない"],
+      "answer": "取り消せない"
+    },
+    {
+      "question": "対象外はありますか",
+      "id": "checkout-cancel.q2",
+      "options": [],
+      "answer": "監査ログだけ残す"
+    }
+  ]
+}

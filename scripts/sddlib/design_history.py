@@ -30,6 +30,15 @@ SCHEMA_VERSION = 1
 
 HOST = "opencode-v2"
 
+# Imported past logs are not a host event stream. Their `host` and `source`
+# values must stay distinguishable from every `opencode.*` live source so a
+# reader can never mistake an import for a recorded presentation.
+IMPORT_HOST = "design-history-import"
+IMPORT_SOURCE = "design-history.import"
+
+# A hand-written import document is an excerpt list, not a transcript.
+IMPORT_LOG_LIMIT_BYTES = 4 * 1024 * 1024
+
 # Form / answer states. "answered", "held", and "corrected" are user-supplied
 # answers. "cancelled", "unanswered", and "partial" are the absence of an
 # answer and must never be read as agreement.
@@ -336,6 +345,16 @@ def _digest(state: str, value: Any) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def answer_digest(state: str, value: Any) -> str:
+    """The stable identity of one answer revision, as stored in ``design_answer``.
+
+    Import previews use this to tell "already recorded" from "new revision"
+    without duplicating the store's digest rule.
+    """
+
+    return _digest(state, value)
+
+
 def _normalize_options(options: Iterable[Any] | None) -> list[dict[str, Any]]:
     normalized: list[dict[str, Any]] = []
     for index, option in enumerate(options or ()):
@@ -418,6 +437,7 @@ def _upsert_form(connection: sqlite3.Connection, payload: dict[str, Any], checko
     now = utc_now()
     title = payload.get("title")
     source = str(payload.get("source") or HOST)
+    host = str(payload.get("host") or HOST)
     metadata_json = _form_metadata(payload)
     connection.execute(
         """
@@ -438,7 +458,7 @@ def _upsert_form(connection: sqlite3.Connection, payload: dict[str, Any], checko
             form_id,
             design_case,
             title,
-            HOST,
+            host,
             source,
             metadata_json,
             STATE_ACTIVE,
@@ -787,6 +807,189 @@ def record_status(payload: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "action": "status", "status": status}
 
 
+def _imported_questions(
+    connection: sqlite3.Connection, design_case: str
+) -> dict[str, dict[str, str]]:
+    """Question text and options already imported for one design case."""
+
+    rows = connection.execute(
+        """
+        SELECT q.question_id, q.text, q.options_json
+        FROM design_question q JOIN design_form f ON f.id = q.form_pk
+        WHERE f.design_case = ? AND f.source = ?
+        """,
+        (design_case, IMPORT_SOURCE),
+    ).fetchall()
+    return {
+        str(row["question_id"]): {
+            "text": str(row["text"]),
+            "options_json": str(row["options_json"]),
+        }
+        for row in rows
+    }
+
+
+def record_import(payload: dict[str, Any]) -> dict[str, Any]:
+    """Store explicit excerpt pairs taken from a user-named past log.
+
+    Imported records use :data:`IMPORT_HOST` / :data:`IMPORT_SOURCE`, never an
+    ``opencode.*`` value, so a reader can tell an import from a recorded
+    presentation. Repeating the same import appends no answer revision: the
+    store's ``(question_pk, digest)`` identity dedupes it.
+
+    ``payload["pairs"]`` carry only excerpts (question text, header, options,
+    answer value). A pair that contains a credential is omitted and reported,
+    never written.
+    """
+
+    checkout = _resolve_checkout(payload)
+    session_id = str(payload.get("sessionID") or "")
+    form_id = str(payload.get("formID") or "")
+    design_case = str(payload.get("case") or "")
+    if not session_id or not form_id or not design_case:
+        raise DesignHistoryError("import requires sessionID, formID, and case")
+    pairs = payload.get("pairs")
+    if not isinstance(pairs, list) or not pairs:
+        raise DesignHistoryError("import requires at least one pair")
+
+    metadata = payload.get("metadata")
+    provenance = payload.get("provenance")
+    provenance = str(provenance) if isinstance(provenance, str) and provenance else None
+    recorded: list[str] = []
+    already: list[str] = []
+    omitted: list[str] = []
+
+    with write_session(checkout, payload.get("db") or None) as connection:
+        _require_same_checkout(connection, checkout)
+        form_pk = _upsert_form(
+            connection,
+            {
+                "sessionID": session_id,
+                "formID": form_id,
+                "case": design_case,
+                "title": payload.get("title"),
+                "host": IMPORT_HOST,
+                "source": IMPORT_SOURCE,
+                "metadata": {"import": metadata} if isinstance(metadata, dict) else None,
+            },
+            checkout,
+        )
+        # An import adds answers; it never rewrites a question already imported
+        # for this case. Identity is the question ID, not the log file, so a
+        # copied or moved log cannot silently redefine a question.
+        previous_questions = _imported_questions(connection, design_case)
+        for pair in pairs:
+            if not isinstance(pair, dict):
+                raise DesignHistoryError("each import pair must be an object")
+            question_id = str(pair.get("questionID") or "")
+            previous = previous_questions.get(question_id)
+            if previous is None:
+                continue
+            incoming_options = json.dumps(
+                _normalize_options(pair.get("options")), ensure_ascii=False
+            )
+            if previous["text"] != str(pair.get("text") or "") or previous[
+                "options_json"
+            ] != incoming_options:
+                raise DesignHistoryError(
+                    f"question {question_id!r} was already imported for case "
+                    f"{design_case!r} with different question text or options; "
+                    "an import must not change it"
+                )
+
+        _register_questions(connection, form_pk, {"questions": pairs})
+        for ordinal, pair in enumerate(pairs):
+            question_id = str(pair.get("questionID") or "")
+            row = connection.execute(
+                "SELECT id, text, options_json FROM design_question "
+                "WHERE form_pk = ? AND question_id = ?",
+                (form_pk, question_id),
+            ).fetchone()
+            if row is None:
+                # The question itself carried a credential and was not stored.
+                omitted.append(question_id)
+                continue
+            value = pair.get("value")
+            if _insert_answer(
+                connection,
+                int(row["id"]),
+                state=str(pair.get("state") or STATE_ANSWERED),
+                value=value,
+                source=IMPORT_SOURCE,
+                delivery="import",
+                event_id=provenance,
+            ):
+                recorded.append(question_id)
+            else:
+                already.append(question_id)
+        total = len(pairs)
+        if len(recorded) + len(already) == total:
+            _set_form_state(connection, form_pk, STATE_ANSWERED)
+        elif recorded or already:
+            _set_form_state(connection, form_pk, STATE_PARTIAL)
+    return {
+        "ok": True,
+        "action": "import",
+        "recorded": recorded,
+        "alreadyRecorded": already,
+        "omitted": omitted,
+    }
+
+
+def imported_form_state(
+    checkout: Path | str,
+    db: Path | str | None = None,
+    *,
+    session_id: str,
+    form_id: str,
+) -> dict[str, Any] | None:
+    """What one imported log already contributed.
+
+    Returns ``{"digests": {(questionID, digest)}, "questions": {questionID:
+    {"text": str, "options": tuple[str, ...]}}}``. Returns ``None`` when a
+    database exists but cannot be read, so a preview can report "unavailable"
+    instead of claiming every pair is new.
+    """
+
+    path = database_path(Path(checkout).expanduser().resolve(), db).resolve()
+    if not path.exists():
+        return {"digests": set(), "questions": {}}
+    try:
+        connection = _connect_readonly(path)
+        try:
+            form = connection.execute(
+                "SELECT id FROM design_form WHERE session_id = ? AND form_id = ?",
+                (session_id, form_id),
+            ).fetchone()
+            if form is None:
+                return {"digests": set(), "questions": {}}
+            rows = connection.execute(
+                """
+                SELECT q.question_id, q.text, q.options_json, a.digest
+                FROM design_question q
+                LEFT JOIN design_answer a ON a.question_pk = q.id
+                WHERE q.form_pk = ?
+                """,
+                (int(form["id"]),),
+            ).fetchall()
+        finally:
+            connection.close()
+    except sqlite3.Error:
+        return None
+    questions: dict[str, dict[str, Any]] = {}
+    digests: set[tuple[str, str]] = set()
+    for row in rows:
+        question_id = str(row["question_id"])
+        options = tuple(
+            str(option.get("label") or option.get("value") or "")
+            for option in json.loads(row["options_json"] or "[]")
+        )
+        questions[question_id] = {"text": str(row["text"]), "options": options}
+        if row["digest"] is not None:
+            digests.add((question_id, str(row["digest"])))
+    return {"digests": digests, "questions": questions}
+
+
 def _require_form(connection: sqlite3.Connection, payload: dict[str, Any]) -> int:
     session_id = str(payload.get("sessionID") or "")
     form_id = str(payload.get("formID") or "")
@@ -867,7 +1070,8 @@ def _load_pairs(connection: sqlite3.Connection) -> list[dict[str, Any]]:
         for question in questions:
             answers = list(
                 connection.execute(
-                    "SELECT state, answer_json, answer_text, revision, source, delivery, recorded_at "
+                    "SELECT state, answer_json, answer_text, revision, source, delivery, "
+                    "event_id, recorded_at "
                     "FROM design_answer WHERE question_pk = ? ORDER BY revision, id",
                     (int(question["id"]),),
                 )
@@ -906,6 +1110,7 @@ def _load_pairs(connection: sqlite3.Connection) -> list[dict[str, Any]]:
                             "revision": int(row["revision"]),
                             "source": row["source"],
                             "delivery": row["delivery"],
+                            "eventID": row["event_id"],
                             "recordedAt": row["recorded_at"],
                         }
                         for row in answers
@@ -1129,17 +1334,24 @@ __all__ = [
     "GitPrecheckError",
     "PrecheckResult",
     "ANSWER_STATES",
+    "HOST",
+    "IMPORT_HOST",
+    "IMPORT_LOG_LIMIT_BYTES",
+    "IMPORT_SOURCE",
     "STATE_ANSWERED",
     "STATE_CANCELLED",
     "STATE_CORRECTED",
     "STATE_HELD",
     "STATE_PARTIAL",
     "STATE_UNANSWERED",
+    "answer_digest",
     "contains_secret",
     "database_path",
     "filter_pairs",
     "git_precheck",
+    "imported_form_state",
     "pair_state",
+    "record_import",
     "record_payload",
     "search",
     "status_report",

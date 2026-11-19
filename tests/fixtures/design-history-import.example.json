@@ -1,0 +1,27 @@
+{
+  "format": "design-history-import",
+  "version": 1,
+  "title": "Past interview: checkout cancel",
+  "questions": [
+    {
+      "question": "削除は取り消せますか",
+      "id": "checkout-cancel.q1",
+      "header": "削除",
+      "options": ["取り消せる", "取り消せない"],
+      "answer": "取り消せる"
+    },
+    {
+      "question": "対象外はありますか",
+      "id": "checkout-cancel.q2",
+      "header": "対象外",
+      "options": [],
+      "answer": "監査ログだけ残す"
+    },
+    {
+      "question": "削除の確認は必要ですか",
+      "header": "確認",
+      "options": ["必要", "不要"],
+      "answer": "不要"
+    }
+  ]
+}

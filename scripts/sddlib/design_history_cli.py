@@ -4,12 +4,16 @@ Subcommands:
 
 - ``search``: read-only JSON search over recorded design question/answer pairs.
 - ``status``: read-only report of the store, Git precheck, and recorder state.
-- ``record``: write one payload (``register``, ``reply``, ``cancel``, ``status``)
-  from a host adapter's stdin.
+- ``record``: write one host payload (``register``, ``reply``, ``cancel``,
+  ``status``) from a host adapter's stdin. Imports never take this path.
 - ``git-check``: verify the Git ignore/untracked precheck without writing.
+- ``import-preview``: report the excerpt pairs a named log would contribute and
+  the exact reason every other pair is excluded. Writes nothing.
+- ``import-confirm``: save exactly those previewed pairs. This is the only
+  import command that writes.
 
-Search is the only documented user-facing read path; it never creates the
-database.
+Search and status are read-only and never create the database. A preview is not
+consent: only ``import-confirm`` may write, and it re-reads the same log.
 """
 
 from __future__ import annotations
@@ -39,8 +43,15 @@ from sddlib.design_history import (
     search,
     status_report,
 )
+from sddlib.design_history_import import (
+    FORMAT_NAME,
+    FORMAT_VERSION,
+    STATUS_NOTHING_TO_IMPORT,
+    confirm_import,
+    preview_import,
+)
 
-USAGE = """usage: design-history <command> [options]
+USAGE = f"""usage: design-history <command> [options]
 
 commands:
   search [--case TEXT] [--question-id ID] [--query TEXT] [--state STATE]
@@ -48,8 +59,61 @@ commands:
   status [--json]
   record [--db PATH]
   git-check [--db PATH]
+  import-preview --log FILE --case CASE [--db PATH]
+  import-confirm --log FILE --case CASE [--db PATH]
 
-Search and status only read. Search prints JSON and never creates the database.
+Search, status, and import-preview only read. Search and import-preview never
+create the database. import-preview reports the excerpt pairs that would be
+imported and the exact reason every other pair is excluded. import-confirm is
+the only command that saves an import; a preview is not consent.
+
+Import log format (version {FORMAT_VERSION}, UTF-8 JSON, excerpts only):
+
+  {{
+    "format": "{FORMAT_NAME}",
+    "version": {FORMAT_VERSION},
+    "title": "Past interview: checkout cancel",        (optional)
+    "questions": [
+      {{
+        "question": "Can a deletion be undone?",       (required)
+        "id": "checkout-cancel.q1",                    (optional)
+        "header": "Delete",                            (optional)
+        "options": ["Yes", "No"],                      (optional, in order)
+        "answer": "Yes",                               (required)
+        "state": "answered"                            (optional)
+      }}
+    ]
+  }}
+
+A pair is imported only when the question text, the ordered options, and the
+answer correspondence are provable from the document: every answer value must
+be exactly one listed option, or the pair must list no options at all. The
+source file is read only and never modified. Full transcripts, attachments,
+tool output, and credentials are not part of this format; a pair containing a
+credential is excluded and only the omission is reported. Name both the log
+and the design case explicitly; the tool never scans directories.
+
+exclusion reasons (importable is reported separately, with its own reason):
+  ambiguous-question-id      two pairs use one ID for different content
+  ambiguous-options          one option label is listed twice
+  answer-not-in-options      the answer is not one of the listed options
+  changed-question           this case already imported a different question
+  duplicate-pair             identical to an earlier pair in the log
+  excerpt-too-long           a field exceeds its excerpt limit
+  invalid-pair-shape         a field has the wrong JSON type
+  invalid-question-id        an explicit id is not one token
+  missing-answer             the pair has no answer
+  missing-question           the pair has no question text
+  secret-detected            the pair holds a credential; text is not stored
+  unsupported-answer-shape   the answer is not a string or list of strings
+  unsupported-field          the pair or log has an unknown field
+  unsupported-state          the state is an absence, not an answer
+log-level reasons: log-unreadable, log-too-large, log-not-utf8, log-not-json,
+  log-not-an-object, unsupported-format, unsupported-version,
+  unsupported-field, no-questions
+
+exit codes: 0 ok, 2 invalid request/format, 3 nothing importable or no
+matches, 4 no database, 5 unavailable (unreadable database), 6 Git-refused
 """
 
 
@@ -95,6 +159,8 @@ def _exit_for_status(status: str) -> int:
         return EXIT_UNAVAILABLE
     if status == SEARCH_STATUS_UNAVAILABLE:
         return EXIT_UNAVAILABLE
+    if status == STATUS_NOTHING_TO_IMPORT:
+        return EXIT_NO_MATCHES
     if status == SEARCH_STATUS_INVALID:
         return EXIT_INVALID
     return EXIT_UNAVAILABLE
@@ -172,11 +238,40 @@ def _git_check(argv: list[str]) -> int:
     return EXIT_OK
 
 
+def _import_options(argv: list[str]) -> tuple[str, str, str | None]:
+    options, rest = _parse_options(argv)
+    if rest:
+        raise DesignHistoryError(f"unexpected argument: {rest[0]}")
+    log = options.get("log") or options.get("file")
+    if not log:
+        raise DesignHistoryError("import requires --log FILE naming one local log")
+    case = options.get("case")
+    if not case:
+        raise DesignHistoryError("import requires --case naming the design case")
+    return log, case, options.get("db")
+
+
+def _import_preview(argv: list[str]) -> int:
+    log, case, db = _import_options(argv)
+    result = preview_import(checkout=Path.cwd(), log=log, case=case, db=db)
+    _emit(result)
+    return _exit_for_status(result["status"])
+
+
+def _import_confirm(argv: list[str]) -> int:
+    log, case, db = _import_options(argv)
+    result = confirm_import(checkout=Path.cwd(), log=log, case=case, db=db)
+    _emit(result)
+    return _exit_for_status(result["status"])
+
+
 COMMANDS = {
     "search": _search,
     "status": _status,
     "record": _record,
     "git-check": _git_check,
+    "import-preview": _import_preview,
+    "import-confirm": _import_confirm,
 }
 
 
