@@ -47,6 +47,9 @@ export type V2Context = {
 
 export const PLUGIN_ID = "sdd-html-docs"
 
+/** Tools whose arguments carry a Target path in the V1 adapter's shape. */
+const FILE_TOOLS = new Set(["edit", "write", "multiedit", "notebookedit", "delete"])
+
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
@@ -128,10 +131,18 @@ export function createHtmlDocsV2Plugin() {
         await context.tool?.hook("execute.before", async (input) => {
           const mapped = v2ToolInputToV1(input)
           if (!mapped) return
+          // The hook runs for every tool. Skip anything that is not a file
+          // tool so unrelated calls (shell, grep, ...) never pay for a policy
+          // process or risk its timeout.
+          if (!FILE_TOOLS.has(mapped.input.tool)) return
           const policyRequest = requestFromToolExecuteBefore(
             mapped.input,
             mapped.output,
           )
+          // Only file-tool calls carry paths. A request with no paths is not an
+          // edit, so running the policy would spend a process and could time
+          // out on unrelated tools such as `shell`.
+          if (!policyRequest.paths.length) return
           // A denial must throw: that is how V2 blocks the tool call.
           requirePolicyAllow(await invokePolicy(repositoryRoot, policyRequest))
         })

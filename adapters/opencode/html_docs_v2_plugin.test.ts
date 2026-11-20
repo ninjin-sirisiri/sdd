@@ -104,3 +104,27 @@ test("does nothing when the host exposes no directory", async () => {
   })
   expect(published).toHaveLength(0)
 })
+
+test("ignores non-file tools without running the policy", async () => {
+  const published: unknown[] = []
+  await createHtmlDocsV2Plugin().setup({
+    location: { directory: process.cwd() },
+    tool: {
+      hook: async (name, callback) => {
+        published.push({ name, callback })
+      },
+    },
+  })
+  const registration = published[0] as {
+    callback: (input: unknown) => Promise<void>
+  }
+  // `shell` has no path argument; running the policy here previously spent a
+  // process per tool call and could time out unrelated commands.
+  await expect(
+    registration.callback({
+      tool: "shell",
+      id: "call_shell",
+      input: { command: "echo hi" },
+    }),
+  ).resolves.toBeUndefined()
+})
