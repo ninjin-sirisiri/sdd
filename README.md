@@ -74,11 +74,26 @@ Enable the Cursor Agent edit hook explicitly with `adapters/cursor/hooks.json.ex
 
 ### OpenCode
 
-Explicitly register `adapters/opencode/html_docs_plugin.ts` as `.opencode/plugins/html_docs_plugin.ts` in the consuming repository. It checks `tool.execute.before` before file edits and validates `file.edited` events afterward. Keep the plugin's relative access to the pack's `scripts/html-docs` entrypoint intact.
+OpenCode V2 does not load a V1 plugin (a function that returns a hook object) as a
+server plugin. Register the V2 wrapper `adapters/opencode/html_docs_v2_plugin.ts`,
+which exposes the same policy through `tool.hook("execute.before")` and
+`filesystem.changed`, and keeps the V1 module as the single policy translator.
+A V2 module must default-export `{ id, setup }`.
+
+```bash
+mkdir -p .opencode/plugins/html_docs
+cat > .opencode/plugins/html_docs/index.ts <<'EOF'
+export { default } from "<pack-root>/adapters/opencode/html_docs_v2_plugin.ts"
+EOF
+```
+
+Keep the wrapper's relative access to the pack's `scripts/html-docs` entrypoint
+intact. A copy of the V1 module, or a `.ts` path listed directly in the `plugins`
+array, silently enforces nothing.
 
 The built-in OpenCode `write` tool has no `bootstrap_paths` argument. For a missing or metadata-less Target companion, the plugin invokes the bounded `bootstrap` check internally before the write, so no host-specific argument is required.
 
-The host registrations are opt-in. The pack does not install host configuration automatically. The examples live under `adapters/`; copy or link the required adapter and registration into the consuming repository without changing the paths expected by `html-docs doctor`.
+`html-docs doctor` still reports the V1 registration path for setup diagnosis. The host registrations are opt-in. The pack does not install host configuration automatically. The examples live under `adapters/`; copy or link the required adapter and registration into the consuming repository without changing the paths expected by `html-docs doctor`.
 
 ## Design History
 

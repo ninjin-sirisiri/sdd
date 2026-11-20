@@ -2493,8 +2493,16 @@ def _registration_status(
     root: Path,
     host: str,
     relative: str,
+    alternative: str | None = None,
 ) -> dict[str, str]:
     path = root / relative
+    if alternative is not None and not path.exists():
+        # A host may use more than one registration path. Report the one that
+        # exists rather than calling the host missing because of the first.
+        alternative_path = root / alternative
+        if alternative_path.exists():
+            path = alternative_path
+            relative = alternative
     item = {"host": host, "status": "missing", "path": relative, "message": ""}
     if not path.exists():
         item["message"] = f"{host} registration is missing: {relative}."
@@ -2622,7 +2630,12 @@ def check_registrations(repo_root: PathInput) -> PolicyResult:
     registrations = [
         _registration_status(root, "cursor", ".cursor/hooks.json"),
         _registration_status(root, "claude", claude_path),
-        _registration_status(root, "opencode", ".opencode/plugins/html_docs_plugin.ts"),
+        _registration_status(
+            root,
+            "opencode",
+            ".opencode/plugins/html_docs_plugin.ts",
+            alternative=".opencode/plugins/html_docs/index.ts",
+        ),
     ]
     paths = [item["path"] for item in registrations]
     failed = [item for item in registrations if item["status"] != "enabled"]
